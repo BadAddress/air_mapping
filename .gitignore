@@ -1,0 +1,10 @@
+# Build outputs
+build/
+install/
+log/
+
+# Editor and local files
+.vscode/
+.idea/
+*.swp
+*~
