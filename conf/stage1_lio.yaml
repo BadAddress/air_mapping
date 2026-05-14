@@ -1,0 +1,276 @@
+
+stage1:
+  records: "/media/x/DATA4TB/es_tunnel/ddd"
+  map_name: "stage1_lio"
+  output_dir: "/apollo_workspace/modules/air_mapping/data/stage1_lio"
+  save_keyframe_clouds: true
+  save_preview_map: true
+  preview_voxel_size: 0.2
+
+channels:
+  # IMU 话题
+  # imu: "/apollo/sensor/rslidar/up/Imu"
+  imu: "/apollo/sensor/gnss/corrected_imu"
+  # IMU 消息类型: "raw" = apollo.drivers.gnss.Imu, "corrected" = apollo.localization.CorrectedImu
+  # imu_type: "raw"
+  imu_type: "corrected"
+  # LiDAR 话题 (PointCloud2 消息类型) - 也需要在 dag 文件中配置
+  lidar: "/apollo/sensor/rslidar/up/PointCloud2"
+  
+  # GNSS 话题 (用于 GPS heading 初始化和 UTM offset 计算)
+  gnss_best_pose: "/apollo/sensor/gnss/best_pose"
+  # INS 状态话题 (GPS 数据有效性门控: ins_status==2 且 pos_type==56)
+  ins_stat: "/apollo/sensor/gnss/ins_stat"
+
+# -----------------------------------------------------------------------------
+# Fast-LIO 前端参数
+# 用于: LaserMapping::Init()
+# -----------------------------------------------------------------------------
+fasterlio:
+  # 雷达类型: 1=AVIA, 2=Velodyne/Ouster, 3=Livox
+  lidar_type: 2
+  scan_line: 128
+  blind: 2.0          # 近距离盲区 (米) — 降低以保留更多地面点, 增强 Z 可观性
+  time_scale: 0.001    # 点云时间戳缩放因子
+  
+  # 关键帧参数
+  kf_dist_th: 3.0   # 关键帧触发距离阈值 (米)
+  kf_angle_th: 15    # 关键帧触发角度阈值 (度)
+  
+  skip_lidar_num: 2    # 跳过的雷达帧数 — 离线建图少跳帧, 减少 Z 漂移积累
+  # point_filter_num: 1    # 点云降采样因子
+  point_filter_num: 8    # 点云降采样因子 — 减少降采样, 保留更多地面特征
+  mapping_point_filter_num: 6  # 建图模式预处理降采样步进（每 N 点取 1，减少去畸变计算量）
+  max_iteration: 5   # ESKF 最大迭代次数
+  # filter_size_scan: 0.14  # 扫描点云体素滤波大小 (米)
+  # filter_size_map: 0.14   # 地图点云体素滤波大小 (米)
+  filter_size_scan: 0.3  # 扫描点云体素滤波大小 (米)
+  filter_size_map: 0.3   # 地图点云体素滤波大小 (米)
+  
+  # iVox 参数
+  # ivox_grid_resolution: 0.14
+  ivox_grid_resolution: 0.3
+  # ivox_nearby_type: 26   # 6, 18, 26
+  ivox_nearby_type: 18   # 6, 18, 26
+  # esti_plane_threshold: 0.06
+  esti_plane_threshold: 0.08
+
+  
+  use_aa: false  # 是否使用 Anti-Aliasing
+  
+  # IMU 噪声参数
+  acc_cov: 0.1      # 加速度计协方差
+  gyr_cov: 0.1     # 陀螺仪协方差
+  b_acc_cov: 0.0001 # 加速度计偏置协方差
+  b_gyr_cov: 0.0001 # 陀螺仪偏置协方差
+  
+  # IMU-LiDAR 外参
+  # extrinsic_est_en: false  # 是否在线估计外参
+  extrinsic_est_en: false  # 是否在线估计外参
+  
+
+  extrinsic_T: [0.0952067249, 0.9585084215, 1.7200000000]
+  extrinsic_R: [-0.9999224567, 0.0045407998, -0.0115957615,
+                -0.0045305680, -0.9999893242, -0.0009084909,
+                -0.0115997630, -0.0008558851, 0.9999323542]
+  
+  keep_first_imu_estimation: false
+
+# -----------------------------------------------------------------------------
+# 系统参数
+# 用于: SlamSystem::Init()
+# -----------------------------------------------------------------------------
+system:
+
+  with_ui: false
+  with_2dui: false
+  with_g2p5: false
+  step_on_kf: false 
+  
+  # 建图时不需要定位功能 (unused, localization removed)
+  # with_lidar_loc: false
+  # with_lo: true
+  # with_pgo: true
+  
+  # 跳帧配置 (unused)
+  # enable_lidar_loc_skip: false
+  # enable_lidar_loc_rviz: false
+  # enable_lidar_odom_skip: false
+  # lidar_loc_skip_num: 0
+  # lidar_odom_skip_num: 0
+  
+  # 地图保存路径
+  map_path: /apollo_workspace/modules/air_mapping/data/stage1_lio/map/
+  
+  # 建图时不发布 TF
+  pub_tf: false
+
+# -----------------------------------------------------------------------------
+# 地图保存过滤参数
+# 用于: SlamSystem::SaveMap()
+# 注意:
+#   - 这里的 0.15 表示 0.15 米 = 15 cm，不是 0.15 cm
+#   - 15 cm 体素会明显降低地图体积；0.15 cm 会增大存储且没有意义
+# -----------------------------------------------------------------------------
+map_save_filter:
+  enable: true
+  voxel_size_m: 0.2                  # global.pcd 保存前体素滤波分辨率（米）
+  chunk_voxel_size_m: 0.2            # 分块地图 chunk 内保存分辨率（米）
+  remove_invalid_points: true         # 去除 NaN / Inf 坏点
+  enable_height_crop: true            # 按 z 高度裁剪
+  min_z_m: -30.0                      # 保留的最小 z（地图坐标系，米，街道场景放宽）
+  max_z_m: 30.0                       # 保留的最大 z（地图坐标系，米，街道场景放宽）
+  enable_statistical_outlier_removal: true  # 统计离群点剔除
+  sor_mean_k: 20                      # SOR 邻域点数
+  sor_stddev_mul_thresh: 1.0          # SOR 标准差阈值
+
+# -----------------------------------------------------------------------------
+# G2P5 2D栅格地图参数 (仅当 with_g2p5=true 时使用)
+# 用于: G2P5::Init()
+# -----------------------------------------------------------------------------
+g2p5:
+  esti_floor: false          # 是否动态估计地面
+  min_th_floor: 0.10         # 障碍物最小高度 (米，相对地面)
+  max_th_floor: 1.24         # 障碍物最大高度 (米，相对地面)
+  lidar_height: 0.0         # 雷达安装高度 (米)
+  floor_height: -1.2         # 地面高度 (米，相对雷达)
+  grid_map_resolution: 0.1   # 栅格分辨率 (米) - 室外建议0.1，室内可用0.05
+
+# -----------------------------------------------------------------------------
+
+
+gps_fusion:
+  enable: false
+  
+  # --- 约束开关 ---
+  enable_gps_position: true       # GPS XY 位置约束
+  enable_gps_heading: false       # GPS Heading 约束（初始化已用，优化时通常不需要）
+  enable_gps_height: true         # GPS 高程约束（所有有效 GPS 帧，按 std_dev 自动加权）
+  
+  # --- GPS 关键帧挂载密度 ---
+  min_kf_distance_for_gps_attach: 5.0  # 每移动 >= N 米才挂载一次 GPS（米）
+  
+  # --- 约束权重 ---
+  # 设计原则: weight=1.0 表示"信任传感器自身的 std_dev"，>1 表示更信任，<1 表示不信任
+  # 典型信息量: LIO ~300-1000 (ESKF P), GPS XY ~10-400 (1/std²), GPS Z ~10-400
+  weight_lio_relative: 1.0        # LIO 相对运动（信任 ESKF 协方差）
+  weight_gps_position: 1.0        # GPS XY 位置（信任 GPS std_dev）
+  weight_gps_height: 1.0          # GPS 高程（信任 GPS std_dev.z）
+  weight_gps_heading: 1.0         # GPS 航向（仅 enable_gps_heading=true 时生效）
+  weight_height_smooth: 2.0       # 相邻帧高度平滑（降低以减少对 GPS Z 和回环 Z 修正的压制）
+  
+  # --- Robust Kernel ---
+  huber_lio_delta: 1.0            # LIO 边 Huber δ（米）
+  huber_gps_pos_delta: 2.0        # GPS 位置 Huber δ（米，支持 GPS 恢复后大残差修正）
+  cauchy_heading_delta: 5.0       # GPS 航向 Cauchy δ（度）
+  
+  # --- GPS 信息矩阵保护 ---
+  min_gps_std_xy: 0.05            # GPS XY std_dev 下限（米），防止过度自信
+  max_gps_info_xy: 400.0          # GPS XY 信息量上限
+  
+  # --- GPS segment / outage aware gating ---
+  gps_anchor_min_spacing_m: 8.0      # GPS XY anchor 最小间距（米）
+  gps_segment_break_distance_m: 25.0 # 连续 GPS anchor 间若里程跨度超过该值，则视为新的 GPS 段
+  gps_boundary_ramp_distance_m: 15.0 # GPS 段边界权重渐变距离（米）
+  gps_segment_min_points: 3          # 形成有效 GPS 段所需最少 GPS 点数
+  gps_height_trend_anchor_spacing_m: 15.0   # 高程趋势约束的最小间距（米）
+  gps_height_trend_min_points: 5            # 拟合平滑高程趋势所需最少 GPS 点数
+  gps_height_trend_smoothing_lambda: 200.0  # 高程平滑样条强度，越大越平滑
+  gps_height_trend_min_std_z: 0.05          # 高程趋势拟合时的 std_z 下限
+  enable_outage_rigid_segments: true # 对长 GPS gap 引入段级刚体约束，避免无 GPS 区域被分布式拉扯
+  enable_outage_block_scan_to_map: true # Round1 后对 outage block 做 scan-to-large-support-submap 匹配
+  outage_rigid_min_keyframes: 8      # 启用段级刚体约束所需的最少无 GPS 关键帧数
+  outage_rigid_min_length_m: 20.0    # 启用段级刚体约束所需的最小无 GPS 段长度（米）
+  max_outage_rigid_block_length_m: 100.0 # 超过该长度的无 GPS 段自动切为多个 rigid block
+  outage_overlap_keyframes: 5        # 第二轮 outage 局部图在边界两侧克隆的 overlap 帧数
+  outage_block_target_radius_m: 200.0 # support-only 目标地图半径（米）
+  outage_block_source_window_radius_m: 100.0 # outage block 源窗口半径（沿轨迹，米）
+  outage_block_window_spacing_m: 80.0 # outage block 匹配窗口中心间距（米）
+  outage_block_min_source_keyframes: 8 # 每个 block 窗口参与匹配的最少关键帧数
+  outage_block_target_sample_step: 2   # 构建 200m support 子图时的关键帧采样步长
+  outage_block_max_coarse_z_search_m: 12.0 # coarse search 的最大 Z 偏移搜索范围（米）
+  outage_block_coarse_z_step_m: 4.0   # coarse search 的 Z 偏移步长（米）
+  outage_block_prior_translation_sigma_m: 0.6 # block-to-map 先验平移 sigma（米）
+  outage_block_prior_rotation_sigma_deg: 4.0  # block-to-map 先验旋转 sigma（度）
+  disable_gps_height_on_long_outage: false # 平滑高程趋势默认可跨 long-gap 场景使用；如需彻底关闭可改 true
+  long_outage_threshold_m: 100.0     # 视为 long outage 的阈值（米）
+  
+  # --- 求解器 ---
+  max_iterations: 100
+  verbose: false
+  
+  # --- 话题配置 ---
+  heading_channel: "/apollo/sensor/gnss/heading"
+  # Heading / BestPose 最终字段口径:
+  # - measurement_time: 统一表示传感器测量时刻（unix seconds）
+  # - header.timestamp_sec: 优先与 measurement_time 保持一致，便于在线核对
+  # - Heading.position_type / BestPose.sol_type: 接收 RTK fixed/float 细粒度枚举，
+  #   下游不再写死只接受 NARROW_INT(50)
+  heading_std_threshold: 1.0
+
+# -----------------------------------------------------------------------------
+# 回环检测 (FinalOptimize, 离线 ICP)
+# GPS 距离搜索候选 + ICP 点云验证 + SE3 回环边
+# -----------------------------------------------------------------------------
+loop_closure:
+  enable: false
+  search_radius: 15.0          # 空间距离阈值 (米)
+  min_keyframe_gap: 50         # 最小时间间隔 (帧数, 避免相邻帧误检)
+  loop_kf_gap: 10              # 回环检测触发间隔；离上次触发太近则直接跳过当前关键帧
+  min_id_interval: 20          # 已命中历史候选附近的抑制间隔，避免同一段历史轨迹重复加边
+  closest_id_th: 50            # 与当前帧 ID 太近则不作为回环候选
+  history_submap_half_range: 40 # 历史端子图范围：中心帧前后关键帧数量
+  history_submap_step: 4       # 历史端子图采样步长
+  icp_max_iterations: 100      # ICP 最大迭代次数
+  icp_max_corr_dist: 2.0       # ICP 最大对应点距离 (米)
+  icp_fitness_threshold: 0.3   # ICP fitness 阈值 (越小越严格)
+  info_scale: 100.0            # 回环边信息矩阵缩放 (相对于 Identity)
+
+# -----------------------------------------------------------------------------
+# GPS Heading 初始化参数 (仅初始化 HEADING，不使用 GPS 位置)
+# 用于: LaserMapping::Init() 和 ImuProcess::ApplyGPSHeadingInit()
+# 
+# 功能说明:
+#   - 在 IMU 初始化完成后，使用 GPS Heading 初始化 LIO 坐标系的 YAW 角
+#   - LIO 坐标系将与 UTM 坐标系平行（ENU: East-North-Up）
+#   - OFFSET 来自第一帧 GPS Best Pose 提供的位置（经过杆臂补偿后的 IMU 位置）
+# 
+# GPS Heading 定义:
+#   - 0 度 = 西 (ENU -X 轴)
+#   - ±180 度 = 东 (ENU +X 轴)
+# 
+# 注意:
+#   - 本模块 **仅使用 GPS Heading 进行初始化**，不使用 GPS 位置
+#   - GPS 位置信息用于后续 PGO/GPS 融合模块（已从本模块移除）
+# -----------------------------------------------------------------------------
+gps_heading_init:
+  enable: true  # 防拉扯测试：开启 GPS heading 初始化，确保与 UTM 平行
+  
+  # GPS 天线(蘑菇头) 到 IMU 的外参 (lever arm)
+  # 定义: IMU 坐标系下，GPS 天线相对于 IMU 的位置 [x, y, z]
+  # 用途: 将 GPS Best Pose (天线位置) 转换为 IMU 位置
+  #   P_imu_utm = P_antenna_utm - R_world_imu * lever_arm
+  # IMU 坐标系定义: X-右, Y-前, Z-上 (右手坐标系)
+  # 注意: Heading 数据天然描述 IMU 方向，无需杆臂补偿
+  gps_to_imu_translation: [-0.423, -0.208, 0.874]  # [右(x), 前(y), 上(z)] 单位: 米
+  
+  # GPS 天线安装角度偏差 (Antenna Mounting Offset)
+  # 由于天线横置安装，GNSS 模块输出的 heading 存在固有偏差
+  # 转换公式: yaw_imu = (antenna_yaw_offset - imu_yaw_offset) - heading
+  # 单位: 度 (degrees)
+  antenna_yaw_offset: 89.17603  # 天线安装偏航角偏差
+  imu_yaw_offset: 0.2197266     # 惯导安装偏航角偏差
+
+# -----------------------------------------------------------------------------
+# 时间同步参数 (Time Synchronization)
+# -----------------------------------------------------------------------------
+time_sync:
+  # 组合导航（IMU/GPS）与激光雷达的时间偏移
+  # 定义: t_lidar = t_gnss - gnss_lidar_time_offset
+  # 正值：组合导航时间戳快于激光雷达
+  # 单位: 秒 (seconds)
+  # 注意:
+  # - t_gnss 统一取 Heading/BestPose 的 measurement_time
+  # - 若老驱动缺失 measurement_time，则回退到 header.timestamp_sec
+  # - 设置为 0.0 时不做任何时间补偿
+  gnss_lidar_time_offset: 0.0  # 组合导航比激光快 30ms
