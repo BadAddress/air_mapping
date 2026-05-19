@@ -197,7 +197,7 @@ class SlamSystem {
     
     // GPS history for interpolation at keyframe timestamps
     std::deque<GpsFullObservation> gps_full_history_;
-    static constexpr size_t GPS_HISTORY_MAX_SIZE = 2000;   // max stored GPS full observations
+    static constexpr size_t GPS_HISTORY_ONLINE_MAX_SIZE = 2000;
     static constexpr double GPS_INTERP_MAX_GAP = 1.5;      // max allowed time gap for interpolation (seconds)
     
     // GPS attachment density control (sparser GPS keyframes)

@@ -1,0 +1,71 @@
+stage2:
+  input_dir: "/apollo_workspace/modules/air_mapping/data/stage1_lio"
+  output_dir: "/apollo_workspace/modules/air_mapping/data/stage2_graph_opt"
+  source_config_path: "/apollo_workspace/modules/air_mapping/conf/stage1_lio.yaml"
+  map_name: "stage2_graph_opt"
+
+alignment:
+  # A new GPS segment starts when two adjacent valid GPS keyframe anchors are
+  # farther apart than this distance in XY.
+  gps_segment_break_distance_m: 30.0
+
+  # Smooth GPS height inside each continuous GPS segment with std_z-aware
+  # weighted second-difference regularization.
+  smooth_gps_height: true
+  gps_height_smoothing_lambda: 200.0
+  # Anchor weighting uses the recorded standard deviation directly.
+  # Keep the floor small so sub-3cm RTK points remain truly dominant.
+  min_gps_std_xy: 0.01
+  min_gps_std_z: 0.05
+
+  # Final Stage2 alignment is a single rigid transform from the Stage1 LIO
+  # trajectory into the UTM-local GPS frame. Full SE3 lets reliable GPS-covered
+  # regions correct global roll/pitch/yaw/translation while preserving map
+  # rigidity in GPS outage areas.
+  min_alignment_anchors: 3
+  constrain_to_yaw_only: false
+
+  # Robustly down-weight GPS anchors whose post-alignment residual is too large.
+  # This protects the full SE3 tilt estimate from isolated GPS outliers.
+  robust_huber_delta_m: 2.0
+  robust_max_iterations: 5
+
+lever_arm_calibration:
+  # Stage2 starts by estimating a better GPS antenna-to-IMU lever arm from
+  # Stage1 raw antenna observations before rebuilding GPS alignment anchors.
+  enable: true
+
+  # Only use very accurate GPS samples for lever-arm calibration.
+  # The current default keeps only RTK fixed solutions and sub-3cm XY std.
+  max_gps_std_xy_m: 0.03
+  max_interp_gap_s: 0.75
+  require_stage1_gps_anchor: false
+  require_rtk_fixed: true
+  required_sol_status: 0
+  required_sol_type: 50
+  min_satellite_tracked: 0
+  max_heading_std_deg: 1.0
+  max_lio_gnss_yaw_diff_deg: 2.0
+  min_samples: 20
+  max_iterations: 5
+
+  # Prior keeps lever-arm correction from absorbing global alignment errors.
+  prior_sigma_xy_m: 0.30
+  prior_sigma_z_m: 0.05
+  estimate_heading_bias: true
+  prior_sigma_heading_bias_deg: 1.0
+  max_heading_bias_deg: 3.0
+  huber_delta_xy_m: 0.15
+  max_correction_norm_m: 0.50
+
+  # Keep Z fixed by default because vertical GPS/height smoothing is handled
+  # separately and Z is less useful for XY map consistency.
+  estimate_z: false
+  # Keep lever-arm orientation yaw-only by default so lever-arm calibration does
+  # not feed noisy roll/pitch heading data back into the global SE3 fit.
+  use_full_lio_orientation: false
+
+output:
+  save_preview_map: true
+  preview_voxel_size: 0.2
+  preview_keyframe_step: 1

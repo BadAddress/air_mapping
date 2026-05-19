@@ -7,6 +7,7 @@
 #include "cyber/common/log.h"
 #include "cyber/record/record_reader.h"
 #include "modules/air_mapping/stage1/stage1_artifact_writer.h"
+#include "modules/air_mapping/stage1/stage1_loop_optimizer.h"
 
 namespace apollo {
 namespace air_mapping {
@@ -53,6 +54,16 @@ bool Stage1Runner::Run(const Stage1Config& config) {
 
   const auto keyframes = slam_system_->GetAllKeyframes();
   const auto gps_history = slam_system_->GetGpsFullHistory();
+
+  std::vector<Stage1LoopConstraint> loop_constraints;
+  Stage1LoopSummary loop_summary;
+  Stage1LoopOptimizer loop_optimizer;
+  if (!loop_optimizer.Optimize(config_, keyframes, &loop_constraints,
+                               &loop_summary)) {
+    AERROR << "Stage1 LiDAR-only loop optimization failed";
+    return false;
+  }
+
   lightning::CloudPtr preview_map;
   if (config_.output.save_preview_map && !keyframes.empty()) {
     preview_map = slam_system_->GetGlobalMapFromKeyframes(
@@ -60,7 +71,8 @@ bool Stage1Runner::Run(const Stage1Config& config) {
   }
 
   Stage1ArtifactWriter writer;
-  return writer.Write(config_, keyframes, gps_history, preview_map);
+  return writer.Write(config_, keyframes, gps_history, loop_constraints,
+                      loop_summary, preview_map);
 }
 
 bool Stage1Runner::ProcessRecord(const std::string& record_path) {
@@ -169,11 +181,15 @@ void Stage1Runner::ProcessHeading(
   if (!config_.gps_gate.enable_gps_heading_init) {
     return;
   }
-  if (!heading_msg.has_solution_status() || !heading_msg.has_position_type()) {
+  if (heading_msg.has_solution_status() &&
+      heading_msg.solution_status() != apollo::drivers::gnss::SOL_COMPUTED) {
     return;
   }
-  if (heading_msg.solution_status() != apollo::drivers::gnss::SOL_COMPUTED ||
+  if (heading_msg.has_position_type() &&
       !IsAcceptedRtkSolutionType(heading_msg.position_type())) {
+    return;
+  }
+  if (!heading_msg.has_heading()) {
     return;
   }
   lightning::HeadingObservation heading;

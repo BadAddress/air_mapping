@@ -68,8 +68,8 @@ class Keyframe {
     struct GpsData {
         bool gps_available = false;        // Whether valid GPS exists at this keyframe timestamp
         bool has_gps = false;              // Whether this keyframe is selected as a sparse GPS graph anchor
-        Vec3d gps_utm_position;            // GPS UTM position (antenna/IMU processed as needed)
-        Vec3d gps_std_dev;                 // GPS position standard deviation [std_x, std_y, std_z]
+        Vec3d gps_utm_position = Vec3d::Zero();  // GPS UTM position (antenna/IMU processed as needed)
+        Vec3d gps_std_dev = Vec3d::Zero();       // GPS position standard deviation [std_x, std_y, std_z]
         double gps_heading_deg = 0.0;      // GPS heading (degrees)
         double heading_std_deg = 0.0;      // Heading standard deviation (degrees)
         uint32_t sol_type = 0;             // Solution type (50 = NARROW_INT for RTK fixed)

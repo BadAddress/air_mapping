@@ -1,11 +1,13 @@
 
 stage1:
-  records: "/media/x/DATA4TB/es_tunnel/ddd"
+  # records: "/media/x/DATA4TB/es_tunnel/ddd"
+  records: "/media/x/DATA4TB/fuxing_new/fuxing1_recovered"
+
   map_name: "stage1_lio"
   output_dir: "/apollo_workspace/modules/air_mapping/data/stage1_lio"
   save_keyframe_clouds: true
   save_preview_map: true
-  preview_voxel_size: 0.2
+  preview_voxel_size: 0.3
 
 channels:
   # IMU 话题
@@ -209,22 +211,39 @@ gps_fusion:
   heading_std_threshold: 1.0
 
 # -----------------------------------------------------------------------------
-# 回环检测 (FinalOptimize, 离线 ICP)
-# GPS 距离搜索候选 + ICP 点云验证 + SE3 回环边
+# 回环检测 / LiDAR-only PGO (Stage1 Pure LIO + OPT)
+# 基于 LIO 局部坐标做候选搜索，不使用 GPS，不做 yaw hard gate。
+# 验证采用 LightningLM 风格的多分辨率 NDT 粗到细，ICP 只作为可选精修。
 # -----------------------------------------------------------------------------
 loop_closure:
-  enable: false
+  enable: true
   search_radius: 15.0          # 空间距离阈值 (米)
   min_keyframe_gap: 50         # 最小时间间隔 (帧数, 避免相邻帧误检)
   loop_kf_gap: 10              # 回环检测触发间隔；离上次触发太近则直接跳过当前关键帧
   min_id_interval: 20          # 已命中历史候选附近的抑制间隔，避免同一段历史轨迹重复加边
   closest_id_th: 50            # 与当前帧 ID 太近则不作为回环候选
+  max_candidates_per_query: 3   # 每个 query 最多验证的历史候选数量
   history_submap_half_range: 40 # 历史端子图范围：中心帧前后关键帧数量
   history_submap_step: 4       # 历史端子图采样步长
-  icp_max_iterations: 100      # ICP 最大迭代次数
-  icp_max_corr_dist: 2.0       # ICP 最大对应点距离 (米)
-  icp_fitness_threshold: 0.3   # ICP fitness 阈值 (越小越严格)
-  info_scale: 100.0            # 回环边信息矩阵缩放 (相对于 Identity)
+  ndt_resolutions: [10.0, 5.0, 2.0, 1.0]
+  ndt_max_iterations: 40
+  ndt_score_threshold: 0.3     # PCL NDT transformation probability，越大越可信
+  ndt_voxel_ratio: 0.1         # 每层 NDT 输入体素 = resolution * ratio
+  use_icp_refine: false        # 默认不用 ICP；开启后 ICP 只做 NDT 后的小范围 polish
+  icp_max_iterations: 8
+  icp_max_corr_dist: 1.0
+  icp_fitness_threshold: 0.3
+  icp_max_translation_delta: 0.20
+  icp_max_rotation_delta_deg: 3.0
+  lio_translation_sigma_m: 0.08
+  lio_rotation_sigma_deg: 1.0
+  loop_translation_sigma_m: 0.25
+  loop_rotation_sigma_deg: 3.0
+  loop_info_scale: 1.0
+  lio_huber_delta: 1.0
+  loop_cauchy_delta: 1.0
+  max_iterations: 50
+  verbose: false
 
 # -----------------------------------------------------------------------------
 # GPS Heading 初始化参数 (仅初始化 HEADING，不使用 GPS 位置)

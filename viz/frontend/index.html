@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Air Mapping Viz</title>
+    <link rel="stylesheet" href="style.css">
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+</head>
+<body>
+    <div id="container"></div>
+
+    <section id="panel">
+        <header>
+            <div>
+                <h1>Air Mapping Viz</h1>
+                <p>静态 PCD / HDMap 对齐分析工具</p>
+            </div>
+            <span id="status">Ready</span>
+        </header>
+
+        <div class="field">
+            <label>模式</label>
+            <div class="segmented">
+                <button id="mode-local" class="active">LOCAL</button>
+                <button id="mode-global">GLOBAL</button>
+            </div>
+        </div>
+
+        <div class="field">
+            <label for="pcd-path">PCD 点云</label>
+            <select id="pcd-select"></select>
+            <input id="pcd-path" type="text" placeholder="data/.../preview/refined_global_preview.pcd">
+        </div>
+
+        <div id="global-fields" style="display:none;">
+            <div class="field">
+                <label for="hdmap-path">HDMap base_map.txt</label>
+                <select id="hdmap-select"></select>
+                <input id="hdmap-path" type="text" placeholder="viz/hdmap/wuxi/base_map.txt">
+            </div>
+
+            <div class="field">
+                <label for="alignment-path">utm_alignment.txt</label>
+                <select id="alignment-select"></select>
+                <input id="alignment-path" type="text" placeholder="data/stage1_lio/utm_alignment.txt">
+            </div>
+        </div>
+
+        <div class="actions">
+            <button id="load-btn">加载显示</button>
+            <button id="reset-btn">重置视角</button>
+            <button id="toggle-pcd-btn">隐藏 PCD</button>
+            <button id="toggle-hdmap-btn">隐藏 HDMap</button>
+            <button id="color-btn">Color: Intensity</button>
+        </div>
+
+        <div class="controls-hint">
+            鼠标：左键旋转 / Ctrl+左键滚转 / 中键或 Shift+左键平移 / 右键、滚轮或 Ctrl+Shift+左键缩放 / 双击聚焦
+        </div>
+
+        <div id="stats">
+            <div>PCD points: <span id="pcd-count">0</span></div>
+            <div>HDMap features: <span id="hdmap-count">0</span></div>
+            <div>UTM offset: <span id="utm-offset">-</span></div>
+            <div>FPS: <span id="fps">0</span></div>
+        </div>
+    </section>
+
+    <section id="legend">
+        <h2>图层</h2>
+        <div><span style="background:#4a90d9"></span>PCD</div>
+        <div><span style="background:#ffff00"></span>Lane center</div>
+        <div><span style="background:#ff00ff"></span>Solid boundary</div>
+        <div><span style="background:#ffffff"></span>Crosswalk</div>
+        <div><span style="background:#00ffff"></span>Junction</div>
+    </section>
+
+    <script type="module" src="main.js"></script>
+</body>
+</html>

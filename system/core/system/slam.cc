@@ -1059,7 +1059,8 @@ void SlamSystem::ProcessGpsPair(const GpsPairCandidate& pair) {
     
     // Append to GPS history for interpolation at keyframe timestamps
     gps_full_history_.push_back(full_obs);
-    while (gps_full_history_.size() > GPS_HISTORY_MAX_SIZE) {
+    while (options_.online_mode_ &&
+           gps_full_history_.size() > GPS_HISTORY_ONLINE_MAX_SIZE) {
         gps_full_history_.pop_front();
     }
     

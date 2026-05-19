@@ -8,11 +8,13 @@ apollo_cc_library(
     srcs = [
         "stage1_artifact_writer.cc",
         "stage1_config.cc",
+        "stage1_loop_optimizer.cc",
         "stage1_runner.cc",
     ],
     hdrs = [
         "stage1_artifact_writer.h",
         "stage1_config.h",
+        "stage1_loop_optimizer.h",
         "stage1_runner.h",
     ],
     copts = [
@@ -28,6 +30,7 @@ apollo_cc_library(
     ],
     deps = [
         "//cyber",
+        "//modules/air_mapping/system/core/miao:miao",
         "//modules/air_mapping/system:lightning_common",
         "//modules/air_mapping/system:lightning_system",
         "//modules/common_msgs/localization_msgs:gps_cc_proto",

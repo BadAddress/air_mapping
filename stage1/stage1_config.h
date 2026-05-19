@@ -33,6 +33,37 @@ struct OutputConfig {
   float preview_voxel_size = 0.2f;
 };
 
+struct LoopClosureConfig {
+  bool enable = false;
+  double search_radius = 15.0;
+  int min_keyframe_gap = 50;
+  int loop_kf_gap = 10;
+  int min_id_interval = 20;
+  int closest_id_threshold = 50;
+  int history_submap_half_range = 40;
+  int history_submap_step = 4;
+  int max_candidates_per_query = 3;
+  int ndt_max_iterations = 40;
+  double ndt_score_threshold = 0.3;
+  std::vector<double> ndt_resolutions = {10.0, 5.0, 2.0, 1.0};
+  double ndt_voxel_ratio = 0.1;
+  bool use_icp_refine = false;
+  int icp_max_iterations = 8;
+  double icp_max_corr_dist = 1.0;
+  double icp_fitness_threshold = 0.3;
+  double icp_max_translation_delta = 0.20;
+  double icp_max_rotation_delta_deg = 3.0;
+  double lio_translation_sigma_m = 0.08;
+  double lio_rotation_sigma_deg = 1.0;
+  double loop_translation_sigma_m = 0.25;
+  double loop_rotation_sigma_deg = 3.0;
+  double loop_info_scale = 1.0;
+  double lio_huber_delta = 1.0;
+  double loop_cauchy_delta = 1.0;
+  int max_iterations = 50;
+  bool verbose = false;
+};
+
 struct Stage1Config {
   std::vector<std::string> records;
   std::string map_name = "stage1_lio";
@@ -41,6 +72,7 @@ struct Stage1Config {
   ChannelConfig channels;
   GpsGateConfig gps_gate;
   OutputConfig output;
+  LoopClosureConfig loop_closure;
 };
 
 bool LoadStage1Config(const std::string& config_path, Stage1Config* config);
@@ -48,4 +80,3 @@ bool LoadStage1Config(const std::string& config_path, Stage1Config* config);
 }  // namespace stage1
 }  // namespace air_mapping
 }  // namespace apollo
-

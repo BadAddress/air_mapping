@@ -160,6 +160,117 @@ bool LoadStage1Config(const std::string& config_path, Stage1Config* config) {
             gps["ins_gate_pos_type"].as<uint32_t>();
       }
     }
+
+    if (yaml["loop_closure"]) {
+      const auto& loop = yaml["loop_closure"];
+      auto& config_loop = config->loop_closure;
+      if (loop["enable"]) {
+        config_loop.enable = loop["enable"].as<bool>();
+      }
+      if (loop["search_radius"]) {
+        config_loop.search_radius = loop["search_radius"].as<double>();
+      }
+      if (loop["min_keyframe_gap"]) {
+        config_loop.min_keyframe_gap = loop["min_keyframe_gap"].as<int>();
+      }
+      if (loop["loop_kf_gap"]) {
+        config_loop.loop_kf_gap = loop["loop_kf_gap"].as<int>();
+      }
+      if (loop["min_id_interval"]) {
+        config_loop.min_id_interval = loop["min_id_interval"].as<int>();
+      }
+      if (loop["closest_id_th"]) {
+        config_loop.closest_id_threshold = loop["closest_id_th"].as<int>();
+      }
+      if (loop["closest_id_threshold"]) {
+        config_loop.closest_id_threshold =
+            loop["closest_id_threshold"].as<int>();
+      }
+      if (loop["history_submap_half_range"]) {
+        config_loop.history_submap_half_range =
+            loop["history_submap_half_range"].as<int>();
+      }
+      if (loop["history_submap_step"]) {
+        config_loop.history_submap_step = loop["history_submap_step"].as<int>();
+      }
+      if (loop["max_candidates_per_query"]) {
+        config_loop.max_candidates_per_query =
+            loop["max_candidates_per_query"].as<int>();
+      }
+      if (loop["ndt_max_iterations"]) {
+        config_loop.ndt_max_iterations = loop["ndt_max_iterations"].as<int>();
+      } else if (loop["icp_max_iterations"]) {
+        config_loop.ndt_max_iterations = loop["icp_max_iterations"].as<int>();
+      }
+      if (loop["ndt_score_threshold"]) {
+        config_loop.ndt_score_threshold =
+            loop["ndt_score_threshold"].as<double>();
+      } else if (loop["icp_fitness_threshold"]) {
+        config_loop.ndt_score_threshold =
+            loop["icp_fitness_threshold"].as<double>();
+      }
+      if (loop["ndt_resolutions"]) {
+        config_loop.ndt_resolutions =
+            loop["ndt_resolutions"].as<std::vector<double>>();
+      }
+      if (loop["ndt_voxel_ratio"]) {
+        config_loop.ndt_voxel_ratio = loop["ndt_voxel_ratio"].as<double>();
+      }
+      if (loop["use_icp_refine"]) {
+        config_loop.use_icp_refine = loop["use_icp_refine"].as<bool>();
+      }
+      if (loop["icp_max_iterations"]) {
+        config_loop.icp_max_iterations = loop["icp_max_iterations"].as<int>();
+      }
+      if (loop["icp_max_corr_dist"]) {
+        config_loop.icp_max_corr_dist = loop["icp_max_corr_dist"].as<double>();
+      }
+      if (loop["icp_fitness_threshold"]) {
+        config_loop.icp_fitness_threshold =
+            loop["icp_fitness_threshold"].as<double>();
+      }
+      if (loop["icp_max_translation_delta"]) {
+        config_loop.icp_max_translation_delta =
+            loop["icp_max_translation_delta"].as<double>();
+      }
+      if (loop["icp_max_rotation_delta_deg"]) {
+        config_loop.icp_max_rotation_delta_deg =
+            loop["icp_max_rotation_delta_deg"].as<double>();
+      }
+      if (loop["lio_translation_sigma_m"]) {
+        config_loop.lio_translation_sigma_m =
+            loop["lio_translation_sigma_m"].as<double>();
+      }
+      if (loop["lio_rotation_sigma_deg"]) {
+        config_loop.lio_rotation_sigma_deg =
+            loop["lio_rotation_sigma_deg"].as<double>();
+      }
+      if (loop["loop_translation_sigma_m"]) {
+        config_loop.loop_translation_sigma_m =
+            loop["loop_translation_sigma_m"].as<double>();
+      }
+      if (loop["loop_rotation_sigma_deg"]) {
+        config_loop.loop_rotation_sigma_deg =
+            loop["loop_rotation_sigma_deg"].as<double>();
+      }
+      if (loop["loop_info_scale"]) {
+        config_loop.loop_info_scale = loop["loop_info_scale"].as<double>();
+      } else if (loop["info_scale"]) {
+        config_loop.loop_info_scale = loop["info_scale"].as<double>() / 100.0;
+      }
+      if (loop["lio_huber_delta"]) {
+        config_loop.lio_huber_delta = loop["lio_huber_delta"].as<double>();
+      }
+      if (loop["loop_cauchy_delta"]) {
+        config_loop.loop_cauchy_delta = loop["loop_cauchy_delta"].as<double>();
+      }
+      if (loop["max_iterations"]) {
+        config_loop.max_iterations = loop["max_iterations"].as<int>();
+      }
+      if (loop["verbose"]) {
+        config_loop.verbose = loop["verbose"].as<bool>();
+      }
+    }
   } catch (const std::exception& e) {
     AERROR << "Failed to load stage1 config: " << config_path
            << ", error: " << e.what();
@@ -174,6 +285,20 @@ bool LoadStage1Config(const std::string& config_path, Stage1Config* config) {
   if (config->records.empty()) {
     AERROR << "No record files found from configured inputs in " << config_path;
     return false;
+  }
+  auto& loop = config->loop_closure;
+  loop.loop_kf_gap = std::max(loop.loop_kf_gap, 1);
+  loop.min_keyframe_gap = std::max(loop.min_keyframe_gap, 1);
+  loop.closest_id_threshold =
+      std::max(loop.closest_id_threshold, loop.min_keyframe_gap);
+  loop.history_submap_half_range = std::max(loop.history_submap_half_range, 1);
+  loop.history_submap_step = std::max(loop.history_submap_step, 1);
+  loop.max_candidates_per_query = std::max(loop.max_candidates_per_query, 1);
+  loop.ndt_max_iterations = std::max(loop.ndt_max_iterations, 1);
+  loop.icp_max_iterations = std::max(loop.icp_max_iterations, 1);
+  loop.max_iterations = std::max(loop.max_iterations, 1);
+  if (loop.ndt_resolutions.empty()) {
+    loop.ndt_resolutions = {10.0, 5.0, 2.0, 1.0};
   }
   return true;
 }

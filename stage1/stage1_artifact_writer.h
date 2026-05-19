@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "modules/air_mapping/stage1/stage1_config.h"
+#include "modules/air_mapping/stage1/stage1_loop_optimizer.h"
 #include "modules/air_mapping/system/common/gps_data.h"
 #include "modules/air_mapping/system/common/keyframe.h"
 #include "modules/air_mapping/system/common/point_def.h"
@@ -17,10 +18,11 @@ class Stage1ArtifactWriter {
   bool Write(const Stage1Config& config,
              const std::vector<lightning::Keyframe::Ptr>& keyframes,
              const std::vector<lightning::GpsFullObservation>& gps_history,
+             const std::vector<Stage1LoopConstraint>& loop_constraints,
+             const Stage1LoopSummary& loop_summary,
              lightning::CloudPtr preview_map) const;
 };
 
 }  // namespace stage1
 }  // namespace air_mapping
 }  // namespace apollo
-
