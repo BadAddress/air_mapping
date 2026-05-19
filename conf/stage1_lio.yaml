@@ -1,7 +1,7 @@
 
 stage1:
   # records: "/media/x/DATA4TB/es_tunnel/ddd"
-  records: "/media/x/DATA4TB/fuxing_new/fuxing1_recovered"
+  records: "/media/x/DATA4TB/fuxing_new/fuxing_recovered"
 
   map_name: "stage1_lio"
   output_dir: "/apollo_workspace/modules/air_mapping/data/stage1_lio"

@@ -9,6 +9,7 @@ class AirMappingVizApp {
         this.mapViz = new MapVisualizer(this.sceneManager);
         this.hdmapViz = new HDMapVisualizer(this.sceneManager);
         this.loader = new StaticLoader();
+        this.storageKey = 'air_mapping_viz_state_v1';
         this.mode = 'local';
         this.frameCount = 0;
         this.lastFrameTime = performance.now();
@@ -36,6 +37,7 @@ class AirMappingVizApp {
         };
 
         this.bindEvents();
+        this.bindPersistenceEvents();
         this.initialize();
         this.animate();
     }
@@ -44,16 +46,36 @@ class AirMappingVizApp {
         try {
             this.setStatus('Loading file index...');
             const defaults = await this.loader.getDefaults();
-            this.elements.pcdPath.value = defaults.local_pcd;
-            this.elements.hdmapPath.value = defaults.hdmap;
-            this.elements.alignmentPath.value = defaults.utm_alignment;
+            const savedState = this.loadUiState();
+            const initialState = {
+                mode: savedState?.mode ?? 'local',
+                pcdPath: savedState?.pcdPath || defaults.local_pcd || '',
+                hdmapPath: savedState?.hdmapPath || defaults.hdmap || '',
+                alignmentPath: savedState?.alignmentPath || defaults.utm_alignment || '',
+                colorMode: savedState?.colorMode || 'intensity'
+            };
+            this.elements.pcdPath.value = initialState.pcdPath;
+            this.elements.hdmapPath.value = initialState.hdmapPath;
+            this.elements.alignmentPath.value = initialState.alignmentPath;
             await Promise.all([
                 this.populateSelect(this.elements.pcdSelect, 'pcd', this.elements.pcdPath),
                 this.populateSelect(this.elements.hdmapSelect, 'hdmap', this.elements.hdmapPath),
                 this.populateSelect(this.elements.alignmentSelect, 'alignment', this.elements.alignmentPath)
             ]);
-            this.setMode('local');
-            this.setStatus('Ready');
+            this.setMode(initialState.mode);
+            this.applyColorMode(initialState.colorMode);
+
+            const shouldAutoLoad = Boolean(
+                savedState &&
+                initialState.pcdPath &&
+                (initialState.mode !== 'global' || (initialState.hdmapPath && initialState.alignmentPath))
+            );
+            if (shouldAutoLoad) {
+                this.setStatus('Restoring last scene...');
+                await this.loadCurrent({ persistState: false });
+            } else {
+                this.setStatus('Ready');
+            }
         } catch (error) {
             this.setStatus(error.message);
             console.error(error);
@@ -76,7 +98,15 @@ class AirMappingVizApp {
         this.elements.colorBtn.addEventListener('click', () => {
             const mode = this.mapViz.toggleColorMode();
             this.elements.colorBtn.textContent = mode === 'z' ? 'Color: Z-axis' : 'Color: Intensity';
+            this.persistUiState();
         });
+    }
+
+    bindPersistenceEvents() {
+        this.elements.pcdPath.addEventListener('input', () => this.persistUiState());
+        this.elements.hdmapPath.addEventListener('input', () => this.persistUiState());
+        this.elements.alignmentPath.addEventListener('input', () => this.persistUiState());
+        window.addEventListener('beforeunload', () => this.persistUiState());
     }
 
     fitCurrentScene() {
@@ -113,6 +143,7 @@ class AirMappingVizApp {
         select.addEventListener('change', () => {
             if (select.value) {
                 input.value = select.value;
+                this.persistUiState();
             }
         });
     }
@@ -128,9 +159,60 @@ class AirMappingVizApp {
             this.elements.hdmapCount.textContent = '0';
             this.elements.utmOffset.textContent = '-';
         }
+        this.persistUiState();
     }
 
-    async loadCurrent() {
+    loadUiState() {
+        try {
+            const raw = localStorage.getItem(this.storageKey);
+            if (!raw) {
+                return null;
+            }
+            const state = JSON.parse(raw);
+            if (!state || typeof state !== 'object') {
+                return null;
+            }
+
+            return {
+                mode: state.mode === 'global' ? 'global' : 'local',
+                pcdPath: typeof state.pcdPath === 'string' ? state.pcdPath : '',
+                hdmapPath: typeof state.hdmapPath === 'string' ? state.hdmapPath : '',
+                alignmentPath: typeof state.alignmentPath === 'string' ? state.alignmentPath : '',
+                colorMode: state.colorMode === 'z' ? 'z' : 'intensity'
+            };
+        } catch (error) {
+            console.warn('Failed to load viz UI state:', error);
+            return null;
+        }
+    }
+
+    persistUiState() {
+        try {
+            const state = {
+                mode: this.mode,
+                pcdPath: this.elements.pcdPath.value.trim(),
+                hdmapPath: this.elements.hdmapPath.value.trim(),
+                alignmentPath: this.elements.alignmentPath.value.trim(),
+                colorMode: this.mapViz.colorMode
+            };
+            localStorage.setItem(this.storageKey, JSON.stringify(state));
+        } catch (error) {
+            console.warn('Failed to persist viz UI state:', error);
+        }
+    }
+
+    applyColorMode(mode) {
+        const desiredMode = mode === 'z' ? 'z' : 'intensity';
+        if (this.mapViz.colorMode !== desiredMode) {
+            this.mapViz.toggleColorMode();
+        }
+        this.elements.colorBtn.textContent = desiredMode === 'z'
+            ? 'Color: Z-axis'
+            : 'Color: Intensity';
+    }
+
+    async loadCurrent(options = {}) {
+        const persistState = options.persistState !== false;
         const pcdPath = this.elements.pcdPath.value.trim();
         if (!pcdPath) {
             this.setStatus('PCD path is empty');
@@ -138,6 +220,7 @@ class AirMappingVizApp {
         }
 
         try {
+            this.elements.pcdPath.value = pcdPath;
             this.setStatus('Loading PCD...');
             this.mapViz.clear();
             const points = await this.loader.loadPcd(pcdPath);
@@ -150,6 +233,8 @@ class AirMappingVizApp {
                 if (!hdmapPath || !alignmentPath) {
                     throw new Error('GLOBAL mode needs HDMap and utm_alignment');
                 }
+                this.elements.hdmapPath.value = hdmapPath;
+                this.elements.alignmentPath.value = alignmentPath;
                 this.setStatus('Loading HDMap...');
                 const hdmap = await this.loader.loadHdMap(hdmapPath, alignmentPath);
                 this.hdmapViz.loadHDMap(hdmap);
@@ -169,6 +254,9 @@ class AirMappingVizApp {
 
             this.fitCurrentScene();
             this.setStatus(`Loaded ${this.mode.toUpperCase()}`);
+            if (persistState) {
+                this.persistUiState();
+            }
         } catch (error) {
             this.setStatus(error.message);
             console.error(error);

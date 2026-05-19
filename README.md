@@ -304,6 +304,7 @@ http://localhost:12322
 - `GLOBAL`：选择 HDMap、PCD 和 `utm_alignment.txt`；PCD 默认已经与 UTM 方向对齐，直接显示。
 - `GLOBAL` 下 HDMap 使用 `p_viz = p_hdmap_utm - offset` 转到 PCD 的局部坐标系，只做平移 offset，不额外应用 yaw。
 - `utm_alignment.txt` 支持 `offset_x/offset_y/offset_z` YAML-like 格式，也兼容一行 `x y z [yaw]` 格式；`yaw` 字段当前只解析兼容，不参与显示变换。
+- 浏览器会记住上次选择的 `LOCAL/GLOBAL` 模式、PCD/HDMap/对齐文件路径和配色模式，下次打开会自动恢复并尝试直接加载。
 
 视角控制：
 

@@ -13,7 +13,7 @@ import * as THREE from 'three';
  * - Road boundary: Orange (0xff8800) - open line
  */
 export class HDMapVisualizer {
-    // HD map Z offset: -1m below point cloud (point cloud Z=0 is at IMU height)
+    // Extra visual lift above the local-frame HDMap Z to avoid z-fighting with PCD.
     static HD_MAP_Z_OFFSET = 0.5;
     
     // Color definitions for different HD map element types
@@ -49,6 +49,7 @@ export class HDMapVisualizer {
         this.features = [];  // Store parsed features
         this.isVisible = true;
         this.group.visible = this.isVisible;
+        this.displayZLift = HDMapVisualizer.HD_MAP_Z_OFFSET;
         
         console.log('[HDMapVisualizer] Initialized with Z offset:', HDMapVisualizer.HD_MAP_Z_OFFSET);
     }
@@ -70,6 +71,7 @@ export class HDMapVisualizer {
         
         // Clear existing features
         this.clear();
+        this.displayZLift = this.computeDisplayZLift(data);
         
         // Count by type for logging
         const typeCounts = {};
@@ -83,8 +85,18 @@ export class HDMapVisualizer {
         }
         
         console.log('[HDMapVisualizer] Feature counts by type:', typeCounts);
+        console.log('[HDMapVisualizer] Display Z lift:', this.displayZLift);
         console.log('[HDMapVisualizer] HD map loaded successfully. Total children in group:', this.group.children.length);
         console.log('[HDMapVisualizer] ===============================================');
+    }
+
+    computeDisplayZLift(data) {
+        const offsetZ = Number(data?.utm_offset?.z ?? 0.0);
+        return HDMapVisualizer.HD_MAP_Z_OFFSET + (Number.isFinite(offsetZ) ? offsetZ : 0.0);
+    }
+
+    getDisplayZ(point) {
+        return (point.z || 0) + this.displayZLift;
     }
 
     /**
@@ -151,13 +163,13 @@ export class HDMapVisualizer {
             
             positions[idx] = point.x;
             positions[idx + 1] = point.y;
-            positions[idx + 2] = (point.z || 0) + HDMapVisualizer.HD_MAP_Z_OFFSET;
+            positions[idx + 2] = this.getDisplayZ(point);
         }
         
         // Close the loop
         positions[points.length * 3] = points[0].x;
         positions[points.length * 3 + 1] = points[0].y;
-        positions[points.length * 3 + 2] = (points[0].z || 0) + HDMapVisualizer.HD_MAP_Z_OFFSET;
+        positions[points.length * 3 + 2] = this.getDisplayZ(points[0]);
         
         geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
         
@@ -191,7 +203,7 @@ export class HDMapVisualizer {
             
             positions[idx] = point.x;
             positions[idx + 1] = point.y;
-            positions[idx + 2] = (point.z || 0) + HDMapVisualizer.HD_MAP_Z_OFFSET;
+            positions[idx + 2] = this.getDisplayZ(point);
         }
         
         geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
@@ -233,7 +245,7 @@ export class HDMapVisualizer {
             
             positions[idx] = point.x;
             positions[idx + 1] = point.y;
-            positions[idx + 2] = (point.z || 0) + HDMapVisualizer.HD_MAP_Z_OFFSET;
+            positions[idx + 2] = this.getDisplayZ(point);
         }
         
         geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
@@ -266,7 +278,7 @@ export class HDMapVisualizer {
             
             positions[idx] = point.x;
             positions[idx + 1] = point.y;
-            positions[idx + 2] = (point.z || 0) + HDMapVisualizer.HD_MAP_Z_OFFSET;
+            positions[idx + 2] = this.getDisplayZ(point);
         }
         
         geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
