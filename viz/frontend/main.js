@@ -117,8 +117,9 @@ class AirMappingVizApp {
     }
 
     async populateSelect(select, type, input) {
+        const defaults = await this.loader.getDefaults();
         const root = type === 'hdmap'
-            ? 'viz/hdmap'
+            ? (defaults.hdmap_root || 'viz/hdmap_local')
             : 'data';
         const data = await this.loader.listFiles(type, root);
         select.innerHTML = '';
@@ -138,6 +139,9 @@ class AirMappingVizApp {
             const match = Array.from(select.options).find(option => option.value === input.value);
             if (match) {
                 select.value = input.value;
+            } else if (type === 'hdmap') {
+                input.value = '';
+                this.persistUiState();
             }
         }
         select.addEventListener('change', () => {
@@ -175,8 +179,8 @@ class AirMappingVizApp {
 
             return {
                 mode: state.mode === 'global' ? 'global' : 'local',
-                pcdPath: typeof state.pcdPath === 'string' ? state.pcdPath : '',
-                hdmapPath: typeof state.hdmapPath === 'string' ? state.hdmapPath : '',
+                pcdPath: this.normalizeSavedPcdPath(state.pcdPath),
+                hdmapPath: this.normalizeSavedHdmapPath(state.hdmapPath),
                 alignmentPath: typeof state.alignmentPath === 'string' ? state.alignmentPath : '',
                 colorMode: state.colorMode === 'z' ? 'z' : 'intensity'
             };
@@ -184,6 +188,22 @@ class AirMappingVizApp {
             console.warn('Failed to load viz UI state:', error);
             return null;
         }
+    }
+
+    normalizeSavedHdmapPath(path) {
+        if (typeof path !== 'string') {
+            return '';
+        }
+        return path.startsWith('viz/hdmap/') ? '' : path;
+    }
+
+    normalizeSavedPcdPath(path) {
+        if (typeof path !== 'string') {
+            return '';
+        }
+        return path.includes('/keyframes/') || !path.includes('/preview/')
+            ? ''
+            : path;
     }
 
     persistUiState() {

@@ -237,6 +237,22 @@ std::string ExtractBoundaryType(const std::string& boundary_block) {
   return Trim(boundary_block.substr(start, end - start));
 }
 
+bool IsGitLfsPointerContent(const std::string& content) {
+  static constexpr const char* kLfsPrefix =
+      "version https://git-lfs.github.com/spec/v1";
+  return content.rfind(kLfsPrefix, 0) == 0;
+}
+
+bool IsGitLfsPointerFile(const std::filesystem::path& path) {
+  std::ifstream input(path);
+  if (!input.is_open()) {
+    return false;
+  }
+  std::string header;
+  std::getline(input, header);
+  return IsGitLfsPointerContent(header);
+}
+
 std::filesystem::path FindDefaultModuleRoot() {
   std::error_code error;
   std::filesystem::path path = std::filesystem::current_path(error);
@@ -348,6 +364,10 @@ bool AirMappingVizServer::LoadConfig(const std::string& config_path) {
       }
       if (server["doc_root"] && options_.doc_root == default_options.doc_root) {
         options_.doc_root = server["doc_root"].as<std::string>();
+      }
+      if (server["hdmap_root"] &&
+          options_.hdmap_root == default_options.hdmap_root) {
+        options_.hdmap_root = server["hdmap_root"].as<std::string>();
       }
     }
     if (yaml["pcd"]) {
@@ -510,13 +530,13 @@ AirMappingVizServer::Json AirMappingVizServer::HandleDefaults() const {
   defaults["ok"] = true;
   defaults["module_root"] = module_root_.string();
   defaults["pcd_root"] = "data";
-  defaults["hdmap_root"] = "viz/hdmap";
+  defaults["hdmap_root"] = ResolveDefaultHdmapRoot();
   defaults["alignment_root"] = "data";
   defaults["local_pcd"] =
       "data/stage2_graph_opt/preview/optimized_global_preview.pcd";
   defaults["global_pcd"] =
       "data/stage2_graph_opt/preview/optimized_global_preview.pcd";
-  defaults["hdmap"] = "viz/hdmap/wuxi/base_map.txt";
+  defaults["hdmap"] = "";
   defaults["utm_alignment"] = "data/stage1_lio/utm_alignment.txt";
   return defaults;
 }
@@ -527,14 +547,16 @@ AirMappingVizServer::Json AirMappingVizServer::HandleListFiles(
   const std::string type = params.count("type") ? params.at("type") : "";
   const std::string root = params.count("root") ? params.at("root") : "";
   const std::string effective_root =
-      !root.empty() ? root : (type == "hdmap" ? "viz/hdmap" : "data");
-  const auto root_path = ResolveModulePath(effective_root, true);
+      !root.empty() ? root
+                    : (type == "hdmap" ? ResolveDefaultHdmapRoot() : "data");
+  const auto root_path = ResolveModulePath(effective_root, false);
   Json response;
   response["ok"] = true;
   response["root"] = std::filesystem::relative(root_path, module_root_).string();
   response["files"] = Json::array();
 
-  if (!std::filesystem::is_directory(root_path)) {
+  if (!std::filesystem::exists(root_path) ||
+      !std::filesystem::is_directory(root_path)) {
     return response;
   }
 
@@ -547,11 +569,15 @@ AirMappingVizServer::Json AirMappingVizServer::HandleListFiles(
     const auto& path = entry.path();
     bool accept = false;
     if (type == "pcd") {
-      accept = HasExtension(path, ".pcd");
+      accept = HasExtension(path, ".pcd") &&
+               path.parent_path().filename() == "preview";
     } else if (type == "hdmap") {
       accept = path.filename() == "base_map.txt" ||
                path.filename() == "sim_map.txt" ||
                path.filename() == "routing_map.txt";
+      if (accept && IsGitLfsPointerFile(path)) {
+        accept = false;
+      }
     } else if (type == "alignment") {
       const auto name = path.filename().string();
       accept = name == "utm_alignment.txt" || name == "gnss-map-offset.txt" ||
@@ -644,6 +670,13 @@ std::filesystem::path AirMappingVizServer::ResolveModulePath(
     throw std::runtime_error("path escapes air_mapping module root");
   }
   return canonical;
+}
+
+std::string AirMappingVizServer::ResolveDefaultHdmapRoot() const {
+  if (!options_.hdmap_root.empty()) {
+    return options_.hdmap_root;
+  }
+  return "viz/hdmap_local";
 }
 
 std::filesystem::path AirMappingVizServer::ResolveDocPath(
@@ -745,6 +778,12 @@ AirMappingVizServer::Json AirMappingVizServer::LoadHdMapJson(
   }
   const std::string content((std::istreambuf_iterator<char>(input)),
                             std::istreambuf_iterator<char>());
+  if (IsGitLfsPointerContent(content)) {
+    throw std::runtime_error(
+        "HDMap file is a Git LFS pointer, not the real map content: " +
+        hdmap_path.string() +
+        ". Run `git lfs pull` (or fetch the actual file) before loading it.");
+  }
 
   Json hdmap;
   hdmap["ok"] = true;

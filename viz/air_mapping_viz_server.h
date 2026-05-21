@@ -22,6 +22,7 @@ class AirMappingVizServer {
     std::string module_root = "/apollo_workspace/modules/air_mapping";
     std::string doc_root =
         "/apollo_workspace/modules/air_mapping/viz/frontend";
+    std::string hdmap_root = "viz/hdmap_local";
     bool downsample_enabled = true;
     float voxel_size = 0.2f;
     int max_points = 3000000;
@@ -60,6 +61,7 @@ class AirMappingVizServer {
   Json HandleListFiles(const std::string& query) const;
   std::string HandlePcdRequest(const std::string& query) const;
   Json HandleHdMapRequest(const std::string& query) const;
+  std::string ResolveDefaultHdmapRoot() const;
 
   std::filesystem::path ResolveModulePath(const std::string& relative_path,
                                           bool must_exist) const;

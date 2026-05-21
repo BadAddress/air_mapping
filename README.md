@@ -2,6 +2,26 @@
 
 Independent offline mapping module.
 
+## 配置体系
+
+air_mapping 现在支持两层配置，同时兼容旧的单文件配置：
+
+- `conf/devices/*.yaml` 是设备入口配置，只描述这次运行的设备、profile 路径、record 输入和各阶段输出目录。
+- `conf/profiles/*_profile.yaml` 是车型/传感器 profile，描述通道、单双雷达、外参、GPS、Stage1/2/3 算法参数。
+- 默认设备是 `es6`，对应 `conf/devices/es6.yaml` 和 `conf/profiles/es6_profile.yaml`。
+- `minibus` 对应 `conf/devices/minibus.yaml` 和 `conf/profiles/minibus_profile.yaml`，其中双雷达通道和外参来自 `modules/air_localization` 的 `dual_lidar_liu` 分支。
+- 旧的 `conf/stage1_lio.yaml`、`conf/stage2_graph_opt.yaml`、`conf/stage3_graph_refine.yaml` 仍可直接传给 `--config` 使用。
+- 切换到小巴双雷达时，先把 `conf/devices/minibus.yaml` 里的 `device.stage1.records` 改成实际 record 路径，然后传 `--config=/apollo_workspace/modules/air_mapping/conf/devices/minibus.yaml`。
+
+运行时推荐传 device manifest：
+
+```bash
+/opt/apollo/neo/bin/stage1_lio \
+  --config=/apollo_workspace/modules/air_mapping/conf/devices/es6.yaml
+```
+
+Stage1/Stage2/Stage3 的 manifest 会记录 `device_config_path`、`profile_config_path`、`device_id`、`vehicle_name`，便于后续诊断和结果追溯。
+
 ## Stage 1: Pure LIO + LiDAR-Only OPT
 
 Stage 1 reads Cyber record files directly and feeds the copied LIO mapping stack
@@ -10,13 +30,15 @@ front-end finishes, Stage 1 can run LiDAR-only loop detection and pose graph
 optimization using LIO relative edges plus NDT-verified loop edges. GPS is only
 recorded for later stages; it is not fused in Stage 1.
 
-Edit `conf/stage1_lio.yaml` before running:
+Edit `conf/devices/es6.yaml` before running:
 
 ```yaml
-stage1:
-  records:
-    - /path/to/record_directory
-  output_dir: /apollo_workspace/modules/air_mapping/data/stage1_lio
+device:
+  profile_path: /apollo_workspace/modules/air_mapping/conf/profiles/es6_profile.yaml
+  stage1:
+    records:
+      - /path/to/record_directory
+    output_dir: /apollo_workspace/modules/air_mapping/data/es6/stage1_lio
 ```
 
 Each `records` entry may be either a single record file or a directory
@@ -33,7 +55,7 @@ Run:
 
 ```bash
 /opt/apollo/neo/bin/stage1_lio \
-  --config=/apollo_workspace/modules/air_mapping/conf/stage1_lio.yaml
+  --config=/apollo_workspace/modules/air_mapping/conf/devices/es6.yaml
 ```
 
 Primary artifacts:
@@ -117,20 +139,20 @@ an optional global heading bias, so the optimized lever arm does not absorb all
 heading mismatch by itself. This makes the Stage 1 / Stage 2 interface clearer
 and keeps Stage 3 from inheriting a biased GPS frame.
 
-Edit `conf/stage2_graph_opt.yaml` before running:
+Edit the `stage2` block in `conf/devices/es6.yaml` before running:
 
 ```yaml
-stage2:
-  input_dir: /apollo_workspace/modules/air_mapping/data/stage1_lio
-  output_dir: /apollo_workspace/modules/air_mapping/data/stage2_graph_opt
-  source_config_path: /apollo_workspace/modules/air_mapping/conf/stage1_lio.yaml
+device:
+  stage2:
+    input_dir: /apollo_workspace/modules/air_mapping/data/es6/stage1_lio
+    output_dir: /apollo_workspace/modules/air_mapping/data/es6/stage2_graph_opt
 ```
 
 Run:
 
 ```bash
 /opt/apollo/neo/bin/stage2_graph_opt \
-  --config=/apollo_workspace/modules/air_mapping/conf/stage2_graph_opt.yaml
+  --config=/apollo_workspace/modules/air_mapping/conf/devices/es6.yaml
 ```
 
 Primary artifacts:
@@ -245,19 +267,20 @@ each block is ICP-matched against nearby GPS-supported support submaps and
 optimized through one representative SE3 prior, preventing rubber-band
 deformation inside the outage.
 
-Edit `conf/stage3_graph_refine.yaml` before running:
+Edit the `stage3` block in `conf/devices/es6.yaml` before running:
 
 ```yaml
-stage3:
-  input_dir: /apollo_workspace/modules/air_mapping/data/stage2_graph_opt
-  output_dir: /apollo_workspace/modules/air_mapping/data/stage3_graph_refine
+device:
+  stage3:
+    input_dir: /apollo_workspace/modules/air_mapping/data/es6/stage2_graph_opt
+    output_dir: /apollo_workspace/modules/air_mapping/data/es6/stage3_graph_refine
 ```
 
 Run:
 
 ```bash
 /opt/apollo/neo/bin/stage3_graph_refine \
-  --config=/apollo_workspace/modules/air_mapping/conf/stage3_graph_refine.yaml
+  --config=/apollo_workspace/modules/air_mapping/conf/devices/es6.yaml
 ```
 
 Primary artifacts:
@@ -296,7 +319,8 @@ http://localhost:12322
 ```
 
 前端文件选择只暴露 `modules/air_mapping` 下的相对路径，后端会拒绝越界路径。HDMap
-默认放置目录为 `viz/hdmap/`，当前已复制 `air_viz/hdmap` 的示例地图。
+本地默认放置目录是 `viz/hdmap_local/`，仓库自带示例地图仍放在 `viz/hdmap/`。
+如果你有长期使用的本地高精地图，建议放到 `viz/hdmap_local/`，这样切换分支不会影响它。
 
 模式说明：
 

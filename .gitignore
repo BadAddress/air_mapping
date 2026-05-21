@@ -3,6 +3,8 @@ build/
 install/
 log/
 data/
+viz/hdmap_local/*
+!viz/hdmap_local/.gitkeep
 
 # Editor and local files
 .vscode/

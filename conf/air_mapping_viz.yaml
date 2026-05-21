@@ -2,6 +2,7 @@ server:
   port: 12322
   module_root: "/apollo_workspace/modules/air_mapping"
   doc_root: "/apollo_workspace/modules/air_mapping/viz/frontend"
+  hdmap_root: "viz/hdmap_local"
 
 pcd:
   downsample_enabled: true
