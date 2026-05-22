@@ -140,10 +140,6 @@ bool SlamSystem::Init(const std::string& yaml_path) {
     options_.with_gridmap_ = yaml["system"]["with_g2p5"].as<bool>();
     options_.step_on_kf_ = yaml["system"]["step_on_kf"].as<bool>();
     
-    if (yaml["system"]["map_path"]) {
-        options_.map_path_ = yaml["system"]["map_path"].as<std::string>();
-    }
-
     if (yaml["map_save_filter"]) {
         const auto& map_filter = yaml["map_save_filter"];
         if (map_filter["enable"]) {
@@ -501,11 +497,8 @@ CloudPtr SlamSystem::GetGlobalMapFromKeyframes(const std::vector<Keyframe::Ptr>&
 void SlamSystem::SaveMap(const std::string& path) {
     std::string save_path = path;
     if (save_path.empty()) {
-        if (!options_.map_path_.empty()) {
-            save_path = options_.map_path_;
-        } else {
-            save_path = "./data/" + map_name_ + "/";
-        }
+        const std::string map_dir = map_name_.empty() ? "new_map" : map_name_;
+        save_path = "./data/" + map_dir + "/";
     }
 
     AINFO << "slam map saving to " << save_path;

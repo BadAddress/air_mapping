@@ -1,0 +1,12 @@
+# Top-level air_mapping entry.
+# All stage binaries, viz, and debug tools read this file by default.
+# Switch vehicles by changing only active_vehicle and active_vehicle_config.
+
+air_mapping:
+  module_root: "/apollo_workspace/modules/air_mapping"
+  # active_vehicle: "es6"
+  # active_vehicle_config: "conf/vehicles/es6.yaml"
+  active_vehicle: "minibus"
+  active_vehicle_config: "conf/vehicles/minibus.yaml"
+  data_root: "/apollo_workspace/modules/air_mapping/data"
+  debug_root: "/apollo_workspace/modules/air_mapping/data/debug"

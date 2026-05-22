@@ -13,6 +13,7 @@
 #include "yaml-cpp/yaml.h"
 
 #include "cyber/common/log.h"
+#include "modules/air_mapping/system/common/artifact_utils.h"
 
 namespace apollo {
 namespace air_mapping {
@@ -28,6 +29,43 @@ std::vector<std::string> SplitCsvLine(const std::string& line) {
     fields.push_back(field);
   }
   return fields;
+}
+
+std::string Trim(const std::string& value) {
+  const auto begin = value.find_first_not_of(" \t\r\n");
+  if (begin == std::string::npos) {
+    return "";
+  }
+  const auto end = value.find_last_not_of(" \t\r\n");
+  return value.substr(begin, end - begin + 1);
+}
+
+std::string UnquoteYamlScalar(std::string value) {
+  value = Trim(value);
+  if (value.size() >= 2 &&
+      ((value.front() == '"' && value.back() == '"') ||
+       (value.front() == '\'' && value.back() == '\''))) {
+    value = value.substr(1, value.size() - 2);
+  }
+  std::string result;
+  result.reserve(value.size());
+  bool escaped = false;
+  for (const char c : value) {
+    if (escaped) {
+      result.push_back(c);
+      escaped = false;
+      continue;
+    }
+    if (c == '\\') {
+      escaped = true;
+      continue;
+    }
+    result.push_back(c);
+  }
+  if (escaped) {
+    result.push_back('\\');
+  }
+  return result;
 }
 
 std::filesystem::path ResolveArtifactPath(const std::filesystem::path& root,
@@ -129,6 +167,7 @@ bool ReadUtmOrigin(const Stage3Config& config, Stage2Dataset* dataset) {
 bool ReadManifest(const Stage3Config& config, Stage2Dataset* dataset) {
   const auto input_dir = ResolveExistingPath(config.input_dir);
   const auto manifest_path = input_dir / "manifest.yaml";
+  dataset->source_stage2_manifest = manifest_path.string();
   std::ifstream file(manifest_path);
   if (!file.is_open()) {
     AWARN << "Stage2 manifest not found, continue without source metadata: "
@@ -136,22 +175,77 @@ bool ReadManifest(const Stage3Config& config, Stage2Dataset* dataset) {
     return true;
   }
 
+  std::string section;
+  std::string list_key;
   std::string line;
   while (std::getline(file, line)) {
-    const auto separator = line.find(':');
+    const std::string trimmed = Trim(line);
+    if (trimmed.empty() || trimmed[0] == '#') {
+      continue;
+    }
+    if (trimmed == "dataset:") {
+      section = "dataset";
+      list_key.clear();
+      continue;
+    }
+    if (trimmed == "provenance:") {
+      section = "provenance";
+      list_key.clear();
+      continue;
+    }
+    if (trimmed.rfind("- ", 0) == 0) {
+      const std::string value = UnquoteYamlScalar(trimmed.substr(2));
+      if (section == "dataset" && list_key == "sources") {
+        dataset->dataset_sources.push_back(value);
+      } else if (section == "dataset" && list_key == "expanded_records") {
+        dataset->expanded_records.push_back(value);
+      }
+      continue;
+    }
+    const auto separator = trimmed.find(':');
     if (separator == std::string::npos) {
       continue;
     }
-    const std::string key = line.substr(0, separator);
-    std::string value = line.substr(separator + 1);
-    while (!value.empty() && value.front() == ' ') {
-      value.erase(value.begin());
+    const std::string key = Trim(trimmed.substr(0, separator));
+    const std::string value =
+        UnquoteYamlScalar(trimmed.substr(separator + 1));
+    if (section == "dataset") {
+      if (key == "sources" || key == "expanded_records") {
+        list_key = key;
+      } else {
+        list_key.clear();
+      }
+      continue;
     }
+    list_key.clear();
     if (key == "source_stage1_dir") {
       dataset->source_stage1_dir = value;
+    } else if (key == "source_stage1_manifest") {
+      dataset->source_stage1_manifest = value;
+    } else if (key == "source_stage1_generated_at") {
+      dataset->source_stage1_generated_at = value;
+    } else if (key == "generated_at") {
+      dataset->source_stage2_generated_at = value;
+    } else if (key == "vehicle_name") {
+      dataset->source_stage2_vehicle_name = value;
+    } else if (key == "source_stage1_generated_at") {
+      dataset->source_stage1_generated_at = value;
+    } else if (key == "source_stage1_manifest") {
+      dataset->source_stage1_manifest = value;
     } else if (key == "source_config_path") {
       dataset->source_config_path = value;
     }
+  }
+  if (!dataset->source_stage2_vehicle_name.empty() &&
+      dataset->source_stage2_vehicle_name != config.vehicle_name) {
+    AERROR << "Stage2 artifact vehicle mismatch: expected "
+           << config.vehicle_name << ", manifest has "
+           << dataset->source_stage2_vehicle_name << ". input="
+           << config.input_dir;
+    return false;
+  }
+  if (dataset->dataset_sources.empty()) {
+    dataset->dataset_sources = dataset->expanded_records;
   }
   return true;
 }
@@ -418,7 +512,14 @@ bool Stage2ArtifactReader::Read(const Stage3Config& config,
   dataset->relative_edges.clear();
   dataset->gps_anchors.clear();
   dataset->source_stage1_dir.clear();
+  dataset->source_stage1_manifest.clear();
+  dataset->source_stage1_generated_at.clear();
+  dataset->source_stage2_manifest.clear();
+  dataset->source_stage2_generated_at.clear();
+  dataset->source_stage2_vehicle_name.clear();
   dataset->source_config_path.clear();
+  dataset->dataset_sources.clear();
+  dataset->expanded_records.clear();
   dataset->utm_origin = lightning::Vec3d::Zero();
   dataset->has_utm_origin = false;
 

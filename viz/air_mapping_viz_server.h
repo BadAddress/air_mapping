@@ -23,6 +23,15 @@ class AirMappingVizServer {
     std::string doc_root =
         "/apollo_workspace/modules/air_mapping/viz/frontend";
     std::string hdmap_root = "viz/hdmap_local";
+    std::string active_vehicle = "es6";
+    std::string data_root = "/apollo_workspace/modules/air_mapping/data";
+    std::string debug_root =
+        "/apollo_workspace/modules/air_mapping/data/debug";
+    std::string vehicle_data_root;
+    std::string default_local_pcd;
+    std::string default_global_pcd;
+    std::string default_hdmap;
+    std::string default_utm_alignment;
     bool downsample_enabled = true;
     float voxel_size = 0.2f;
     int max_points = 3000000;

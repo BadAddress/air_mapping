@@ -15,7 +15,6 @@ struct LeverArmCalibrationConfig {
   bool require_rtk_fixed = true;
   uint32_t required_sol_status = 0;
   uint32_t required_sol_type = 50;
-  int min_satellite_tracked = 0;
   double max_heading_std_deg = 1.0;
   double max_lio_gnss_yaw_diff_deg = 2.0;
   int min_samples = 20;
@@ -52,12 +51,15 @@ struct Stage2OutputConfig {
 };
 
 struct Stage2Config {
-  std::string input_dir =
-      "/apollo_workspace/modules/air_mapping/data/stage1_lio";
-  std::string output_dir =
-      "/apollo_workspace/modules/air_mapping/data/stage2_graph_opt";
-  std::string source_config_path =
-      "/apollo_workspace/modules/air_mapping/conf/stage1_lio.yaml";
+  std::string run_config_path;
+  std::string vehicle_config_path;
+  std::string vehicle_name = "unknown";
+  std::string module_root = "/apollo_workspace/modules/air_mapping";
+  std::string data_root = "/apollo_workspace/modules/air_mapping/data";
+  std::string debug_root = "/apollo_workspace/modules/air_mapping/data/debug";
+  std::string input_dir;
+  std::string output_dir;
+  std::string source_config_path;
   std::string map_name = "stage2_graph_opt";
   LeverArmCalibrationConfig lever_arm_calibration;
   AlignmentConfig alignment;

@@ -2,14 +2,71 @@
 
 #include <algorithm>
 #include <exception>
+#include <filesystem>
 
 #include "yaml-cpp/yaml.h"
 
 #include "cyber/common/log.h"
+#include "modules/air_mapping/system/common/run_config.h"
 
 namespace apollo {
 namespace air_mapping {
 namespace stage3 {
+
+namespace {
+
+std::string ReadProfileVehicleName(const YAML::Node& yaml,
+                                   const std::string& fallback) {
+  if (yaml["profile"] && yaml["profile"]["vehicle_name"]) {
+    return yaml["profile"]["vehicle_name"].as<std::string>();
+  }
+  if (yaml["vehicle"] && yaml["vehicle"]["name"]) {
+    return yaml["vehicle"]["name"].as<std::string>();
+  }
+  return fallback;
+}
+
+std::string VehicleStageDir(const std::string& data_root,
+                            const std::string& vehicle,
+                            const std::string& stage_dir) {
+  return (std::filesystem::path(data_root) / vehicle / stage_dir).string();
+}
+
+YAML::Node ResolveStage3Yaml(const std::string& config_path,
+                             Stage3Config* config) {
+  YAML::Node yaml = YAML::LoadFile(config_path);
+  if (!IsTopLevelRunConfig(yaml)) {
+    return yaml;
+  }
+
+  AirMappingRunConfig run_config;
+  if (!LoadAirMappingRunConfig(config_path, &run_config)) {
+    return YAML::Node();
+  }
+  config->run_config_path = config_path;
+  config->vehicle_config_path = run_config.resolved_vehicle_config_path;
+  config->vehicle_name =
+      ReadProfileVehicleName(run_config.vehicle_yaml, run_config.active_vehicle);
+  config->module_root = run_config.module_root;
+  config->data_root = run_config.data_root;
+  config->debug_root = run_config.debug_root;
+  config->input_dir =
+      VehicleStageDir(config->data_root, config->vehicle_name, "stage2_graph_opt");
+  config->output_dir =
+      VehicleStageDir(config->data_root, config->vehicle_name,
+                      "stage3_graph_refine");
+  config->map_name = config->vehicle_name + "_stage3_graph_refine";
+  if (run_config.vehicle_yaml["stage3"]) {
+    run_config.vehicle_yaml["stage3"]["input_dir"] = config->input_dir;
+    run_config.vehicle_yaml["stage3"]["output_dir"] = config->output_dir;
+    if (!run_config.vehicle_yaml["stage3"]["map_name"]) {
+      run_config.vehicle_yaml["stage3"]["map_name"] = config->map_name;
+    }
+  }
+  return run_config.vehicle_yaml;
+}
+
+}  // namespace
 
 bool LoadStage3Config(const std::string& config_path, Stage3Config* config) {
   if (config == nullptr) {
@@ -17,16 +74,20 @@ bool LoadStage3Config(const std::string& config_path, Stage3Config* config) {
   }
 
   try {
-    YAML::Node yaml = YAML::LoadFile(config_path);
+    YAML::Node yaml = ResolveStage3Yaml(config_path, config);
+    if (!yaml) {
+      return false;
+    }
+    const bool use_top_level_paths = !config->run_config_path.empty();
     if (yaml["stage3"]) {
       const auto& stage = yaml["stage3"];
-      if (stage["input_dir"]) {
+      if (!use_top_level_paths && stage["input_dir"]) {
         config->input_dir = stage["input_dir"].as<std::string>();
       }
-      if (stage["output_dir"]) {
+      if (!use_top_level_paths && stage["output_dir"]) {
         config->output_dir = stage["output_dir"].as<std::string>();
       }
-      if (stage["map_name"]) {
+      if (!use_top_level_paths && stage["map_name"]) {
         config->map_name = stage["map_name"].as<std::string>();
       }
     }
@@ -222,6 +283,10 @@ bool LoadStage3Config(const std::string& config_path, Stage3Config* config) {
       std::max(config->output.preview_voxel_size, 0.01f);
   config->output.preview_keyframe_step =
       std::max(config->output.preview_keyframe_step, 1);
+  if (config->input_dir.empty() || config->output_dir.empty()) {
+    AERROR << "Stage3 derived paths are empty in " << config_path;
+    return false;
+  }
   return true;
 }
 

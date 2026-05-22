@@ -3,13 +3,10 @@
 # stage3_graph_refine startup script
 # Usage:
 #   ./scripts/stage3.sh
-#   ./scripts/stage3.sh /path/to/config.yaml
 # ============================================================
 
 BINARY="/opt/apollo/neo/bin/stage3_graph_refine"
-DEFAULT_CONFIG="/apollo_workspace/modules/air_mapping/conf/stage3_graph_refine.yaml"
-
-CONFIG="${1:-$DEFAULT_CONFIG}"
+DEFAULT_CONFIG="/apollo_workspace/modules/air_mapping/conf/current_vehicle.yaml"
 
 if [ ! -f "$BINARY" ]; then
     echo "[ERROR] Binary not found: $BINARY"
@@ -17,15 +14,15 @@ if [ ! -f "$BINARY" ]; then
     exit 1
 fi
 
-if [ ! -f "$CONFIG" ]; then
-    echo "[ERROR] Config not found: $CONFIG"
+if [ ! -f "$DEFAULT_CONFIG" ]; then
+    echo "[ERROR] Top-level config not found: $DEFAULT_CONFIG"
     exit 1
 fi
 
 echo "============================================"
 echo " stage3_graph_refine"
-echo " config: $CONFIG"
+echo " config: $DEFAULT_CONFIG"
 echo " binary: $BINARY"
 echo "============================================"
 
-exec "$BINARY" --config="$CONFIG"
+exec "$BINARY"

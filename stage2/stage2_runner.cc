@@ -103,14 +103,6 @@ bool IsHighPrecisionRawGps(const Stage1GpsRawKeyframeObservation& observation,
     }
     return false;
   }
-  if (config.min_satellite_tracked > 0 &&
-      observation.satellite_tracked <
-          static_cast<uint32_t>(config.min_satellite_tracked)) {
-    if (reject_reason) {
-      *reject_reason = "satellite_count_too_low";
-    }
-    return false;
-  }
   if (config.max_heading_std_deg > 0.0 &&
       observation.heading_std_deg > 0.0 &&
       observation.heading_std_deg > config.max_heading_std_deg) {

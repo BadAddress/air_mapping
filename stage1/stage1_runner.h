@@ -4,7 +4,10 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <vector>
 
+#include "modules/air_mapping/stage1/dual_lidar_fusion.h"
+#include "modules/air_mapping/stage1/stage1_artifact_writer.h"
 #include "modules/air_mapping/stage1/stage1_config.h"
 #include "modules/air_mapping/system/common/debug_utils.h"
 #include "modules/air_mapping/system/core/system/slam.h"
@@ -32,6 +35,11 @@ class Stage1Runner {
   void ProcessBestPose(const apollo::drivers::gnss::GnssBestPose& best_pose);
   void ProcessInsStat(const apollo::drivers::gnss::InsStat& ins_stat);
   void ProcessGpsOdom(const apollo::localization::Gps& gps);
+  void ProcessLidarCloud(
+      const std::shared_ptr<apollo::drivers::PointCloud>& cloud,
+      bool is_primary);
+  Stage1GpsZLevelingResult ApplyGpsZLeveling(
+      const std::vector<lightning::Keyframe::Ptr>& keyframes) const;
 
   bool IsGpsInsValid() const;
   bool IsGpsSolutionValid(const apollo::drivers::gnss::GnssBestPose& msg) const;
@@ -45,6 +53,7 @@ class Stage1Runner {
   std::atomic<uint32_t> latest_pos_type_{0};
   std::atomic<bool> has_ins_stat_{false};
   std::unique_ptr<lightning::GpsOdomRecorder> gps_odom_recorder_;
+  std::unique_ptr<DualLidarFusion> dual_lidar_fusion_;
 };
 
 }  // namespace stage1

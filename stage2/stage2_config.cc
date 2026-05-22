@@ -2,14 +2,73 @@
 
 #include <algorithm>
 #include <exception>
+#include <filesystem>
 
 #include "yaml-cpp/yaml.h"
 
 #include "cyber/common/log.h"
+#include "modules/air_mapping/system/common/run_config.h"
 
 namespace apollo {
 namespace air_mapping {
 namespace stage2 {
+
+namespace {
+
+std::string ReadProfileVehicleName(const YAML::Node& yaml,
+                                   const std::string& fallback) {
+  if (yaml["profile"] && yaml["profile"]["vehicle_name"]) {
+    return yaml["profile"]["vehicle_name"].as<std::string>();
+  }
+  if (yaml["vehicle"] && yaml["vehicle"]["name"]) {
+    return yaml["vehicle"]["name"].as<std::string>();
+  }
+  return fallback;
+}
+
+std::string VehicleStageDir(const std::string& data_root,
+                            const std::string& vehicle,
+                            const std::string& stage_dir) {
+  return (std::filesystem::path(data_root) / vehicle / stage_dir).string();
+}
+
+YAML::Node ResolveStage2Yaml(const std::string& config_path,
+                             Stage2Config* config) {
+  YAML::Node yaml = YAML::LoadFile(config_path);
+  if (!IsTopLevelRunConfig(yaml)) {
+    return yaml;
+  }
+
+  AirMappingRunConfig run_config;
+  if (!LoadAirMappingRunConfig(config_path, &run_config)) {
+    return YAML::Node();
+  }
+  config->run_config_path = config_path;
+  config->vehicle_config_path = run_config.resolved_vehicle_config_path;
+  config->vehicle_name =
+      ReadProfileVehicleName(run_config.vehicle_yaml, run_config.active_vehicle);
+  config->module_root = run_config.module_root;
+  config->data_root = run_config.data_root;
+  config->debug_root = run_config.debug_root;
+  config->input_dir =
+      VehicleStageDir(config->data_root, config->vehicle_name, "stage1_lio");
+  config->output_dir =
+      VehicleStageDir(config->data_root, config->vehicle_name, "stage2_graph_opt");
+  config->source_config_path = run_config.resolved_vehicle_config_path;
+  config->map_name = config->vehicle_name + "_stage2_graph_opt";
+  if (run_config.vehicle_yaml["stage2"]) {
+    run_config.vehicle_yaml["stage2"]["input_dir"] = config->input_dir;
+    run_config.vehicle_yaml["stage2"]["output_dir"] = config->output_dir;
+    run_config.vehicle_yaml["stage2"]["source_config_path"] =
+        config->source_config_path;
+    if (!run_config.vehicle_yaml["stage2"]["map_name"]) {
+      run_config.vehicle_yaml["stage2"]["map_name"] = config->map_name;
+    }
+  }
+  return run_config.vehicle_yaml;
+}
+
+}  // namespace
 
 bool LoadStage2Config(const std::string& config_path, Stage2Config* config) {
   if (config == nullptr) {
@@ -17,20 +76,24 @@ bool LoadStage2Config(const std::string& config_path, Stage2Config* config) {
   }
 
   try {
-    YAML::Node yaml = YAML::LoadFile(config_path);
+    YAML::Node yaml = ResolveStage2Yaml(config_path, config);
+    if (!yaml) {
+      return false;
+    }
+    const bool use_top_level_paths = !config->run_config_path.empty();
     if (yaml["stage2"]) {
       const auto& stage = yaml["stage2"];
-      if (stage["input_dir"]) {
+      if (!use_top_level_paths && stage["input_dir"]) {
         config->input_dir = stage["input_dir"].as<std::string>();
       }
-      if (stage["output_dir"]) {
+      if (!use_top_level_paths && stage["output_dir"]) {
         config->output_dir = stage["output_dir"].as<std::string>();
       }
-      if (stage["source_config_path"]) {
+      if (!use_top_level_paths && stage["source_config_path"]) {
         config->source_config_path =
             stage["source_config_path"].as<std::string>();
       }
-      if (stage["map_name"]) {
+      if (!use_top_level_paths && stage["map_name"]) {
         config->map_name = stage["map_name"].as<std::string>();
       }
     }
@@ -103,10 +166,6 @@ bool LoadStage2Config(const std::string& config_path, Stage2Config* config) {
       if (lever["required_sol_type"]) {
         config->lever_arm_calibration.required_sol_type =
             lever["required_sol_type"].as<uint32_t>();
-      }
-      if (lever["min_satellite_tracked"]) {
-        config->lever_arm_calibration.min_satellite_tracked =
-            lever["min_satellite_tracked"].as<int>();
       }
       if (lever["max_heading_std_deg"]) {
         config->lever_arm_calibration.max_heading_std_deg =
@@ -200,8 +259,6 @@ bool LoadStage2Config(const std::string& config_path, Stage2Config* config) {
       std::max(config->lever_arm_calibration.max_gps_std_xy_m, 1e-4);
   config->lever_arm_calibration.max_interp_gap_s =
       std::max(config->lever_arm_calibration.max_interp_gap_s, 0.0);
-  config->lever_arm_calibration.min_satellite_tracked =
-      std::max(config->lever_arm_calibration.min_satellite_tracked, 0);
   config->lever_arm_calibration.max_heading_std_deg =
       std::max(config->lever_arm_calibration.max_heading_std_deg, 0.0);
   config->lever_arm_calibration.max_lio_gnss_yaw_diff_deg =
@@ -227,6 +284,11 @@ bool LoadStage2Config(const std::string& config_path, Stage2Config* config) {
       std::max(config->output.preview_voxel_size, 0.01f);
   config->output.preview_keyframe_step =
       std::max(config->output.preview_keyframe_step, 1);
+  if (config->input_dir.empty() || config->output_dir.empty() ||
+      config->source_config_path.empty()) {
+    AERROR << "Stage2 derived paths are empty in " << config_path;
+    return false;
+  }
 
   return true;
 }

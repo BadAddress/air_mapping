@@ -1,5 +1,7 @@
 #include "modules/air_mapping/stage1/stage1_runner.h"
 
+#include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <string>
 #include <system_error>
@@ -8,6 +10,7 @@
 #include "cyber/record/record_reader.h"
 #include "modules/air_mapping/stage1/stage1_artifact_writer.h"
 #include "modules/air_mapping/stage1/stage1_loop_optimizer.h"
+#include "modules/air_mapping/system/common/artifact_utils.h"
 
 namespace apollo {
 namespace air_mapping {
@@ -16,8 +19,22 @@ namespace stage1 {
 using apollo::cyber::record::RecordMessage;
 using apollo::cyber::record::RecordReader;
 
+namespace {
+
+bool IsHighPrecisionGpsSolType(uint32_t sol_type, uint32_t required_sol_type) {
+  if (sol_type == required_sol_type) {
+    return true;
+  }
+  return sol_type == 50U || sol_type == 56U;
+}
+
+}  // namespace
+
 bool Stage1Runner::Run(const Stage1Config& config) {
   config_ = config;
+  if (!PrepareCleanOutputDirectory(config_.output.directory, "stage1")) {
+    return false;
+  }
 
   lightning::SlamSystem::Options options;
   options.online_mode_ = false;
@@ -28,6 +45,18 @@ bool Stage1Runner::Run(const Stage1Config& config) {
     return false;
   }
   slam_system_->StartSLAM(config_.map_name);
+
+  if (config_.dual_lidar.enable) {
+    dual_lidar_fusion_ = std::make_unique<DualLidarFusion>();
+    if (!dual_lidar_fusion_->Init(config_.dual_lidar.config_path)) {
+      AERROR << "Failed to initialize dual LiDAR fusion with "
+             << config_.dual_lidar.config_path;
+      return false;
+    }
+    if (!dual_lidar_fusion_->enabled()) {
+      dual_lidar_fusion_.reset();
+    }
+  }
 
   const std::filesystem::path gps_odom_path =
       std::filesystem::path(config_.output.directory) / "gps" / "gps_odom_gt.tum";
@@ -47,6 +76,11 @@ bool Stage1Runner::Run(const Stage1Config& config) {
       return false;
     }
   }
+  if (dual_lidar_fusion_) {
+    for (const auto& cloud : dual_lidar_fusion_->FlushPrimaryOnly()) {
+      slam_system_->ProcessLidar(cloud);
+    }
+  }
 
   if (gps_odom_recorder_) {
     gps_odom_recorder_->Close();
@@ -64,6 +98,9 @@ bool Stage1Runner::Run(const Stage1Config& config) {
     return false;
   }
 
+  const Stage1GpsZLevelingResult z_leveling_result =
+      ApplyGpsZLeveling(keyframes);
+
   lightning::CloudPtr preview_map;
   if (config_.output.save_preview_map && !keyframes.empty()) {
     preview_map = slam_system_->GetGlobalMapFromKeyframes(
@@ -72,7 +109,111 @@ bool Stage1Runner::Run(const Stage1Config& config) {
 
   Stage1ArtifactWriter writer;
   return writer.Write(config_, keyframes, gps_history, loop_constraints,
-                      loop_summary, preview_map);
+                      loop_summary, z_leveling_result, preview_map);
+}
+
+Stage1GpsZLevelingResult Stage1Runner::ApplyGpsZLeveling(
+    const std::vector<lightning::Keyframe::Ptr>& keyframes) const {
+  Stage1GpsZLevelingResult result;
+  result.enabled = config_.gps_z_leveling.enable;
+  if (!result.enabled) {
+    result.status_message = "disabled";
+    return result;
+  }
+
+  double gps_z_sum = 0.0;
+  double lio_z_sum = 0.0;
+  const auto& leveling = config_.gps_z_leveling;
+  for (const auto& keyframe : keyframes) {
+    if (!keyframe) {
+      continue;
+    }
+    const auto gps_data = keyframe->GetGpsData();
+    if (!gps_data.has_gps || !gps_data.gps_utm_position.allFinite()) {
+      continue;
+    }
+
+    Stage1GpsZLevelingSample sample;
+    sample.keyframe_id = keyframe->GetID();
+    sample.timestamp = keyframe->GetTimestamp();
+    sample.gps_z = gps_data.gps_utm_position.z();
+    sample.lio_z_before = keyframe->GetOptPose().translation().z();
+    sample.lio_z_after = sample.lio_z_before;
+    sample.std_x = gps_data.gps_std_dev.x();
+    sample.std_y = gps_data.gps_std_dev.y();
+    sample.std_z = gps_data.gps_std_dev.z();
+    sample.sol_type = gps_data.sol_type;
+
+    const double std_xy =
+        std::max(std::abs(sample.std_x), std::abs(sample.std_y));
+    if (!std::isfinite(sample.gps_z) || !std::isfinite(sample.lio_z_before) ||
+        !std::isfinite(std_xy) || !std::isfinite(sample.std_z)) {
+      sample.reject_reason = "non_finite";
+    } else if (!(sample.std_x > 0.0) || !(sample.std_y > 0.0) ||
+               !(sample.std_z > 0.0)) {
+      sample.reject_reason = "std_not_positive";
+    } else if (std_xy > leveling.max_gps_std_xy_m) {
+      sample.reject_reason = "std_xy_too_large";
+    } else if (std::abs(sample.std_z) > leveling.max_gps_std_z_m) {
+      sample.reject_reason = "std_z_too_large";
+    } else if (leveling.require_rtk_fixed &&
+               !IsHighPrecisionGpsSolType(sample.sol_type,
+                                          leveling.required_sol_type)) {
+      sample.reject_reason = "sol_type_mismatch";
+    } else {
+      sample.selected = true;
+      sample.reject_reason = "selected";
+      gps_z_sum += sample.gps_z;
+      lio_z_sum += sample.lio_z_before;
+      ++result.selected_count;
+    }
+    result.samples.push_back(sample);
+  }
+
+  result.candidate_count = result.samples.size();
+  if (result.selected_count <
+      static_cast<size_t>(std::max(leveling.min_samples, 1))) {
+    result.status_message = "not_enough_samples";
+    AWARN << "[Stage1GpsZLeveling] skip: selected=" << result.selected_count
+          << " < min_samples=" << leveling.min_samples;
+    return result;
+  }
+
+  result.gps_mean_z = gps_z_sum / static_cast<double>(result.selected_count);
+  result.lio_mean_z_before =
+      lio_z_sum / static_cast<double>(result.selected_count);
+  result.z_offset_m = result.gps_mean_z - result.lio_mean_z_before;
+  if (!std::isfinite(result.z_offset_m)) {
+    result.status_message = "non_finite_offset";
+    return result;
+  }
+  if (std::abs(result.z_offset_m) > leveling.max_abs_z_offset_m) {
+    result.status_message = "offset_too_large";
+    AWARN << "[Stage1GpsZLeveling] skip: z_offset=" << result.z_offset_m
+          << " exceeds max_abs_z_offset_m=" << leveling.max_abs_z_offset_m;
+    return result;
+  }
+
+  for (const auto& keyframe : keyframes) {
+    if (!keyframe) {
+      continue;
+    }
+    lightning::SE3 pose = keyframe->GetOptPose();
+    lightning::Vec3d translation = pose.translation();
+    translation.z() += result.z_offset_m;
+    keyframe->SetOptPose(lightning::SE3(pose.so3(), translation));
+  }
+  for (auto& sample : result.samples) {
+    sample.lio_z_after = sample.lio_z_before + result.z_offset_m;
+  }
+  result.lio_mean_z_after = result.lio_mean_z_before + result.z_offset_m;
+  result.applied = true;
+  result.status_message = "applied";
+  AINFO << "[Stage1GpsZLeveling] applied: selected=" << result.selected_count
+        << ", gps_mean_z=" << result.gps_mean_z
+        << ", lio_mean_z_before=" << result.lio_mean_z_before
+        << ", z_offset_m=" << result.z_offset_m;
+  return result;
 }
 
 bool Stage1Runner::ProcessRecord(const std::string& record_path) {
@@ -86,10 +227,23 @@ bool Stage1Runner::ProcessRecord(const std::string& record_path) {
   RecordMessage message;
   uint64_t processed = 0;
   while (reader.ReadMessage(&message)) {
-    if (message.channel_name == config_.channels.lidar) {
+    if (dual_lidar_fusion_ &&
+        message.channel_name == config_.dual_lidar.primary_channel) {
       auto cloud = std::make_shared<apollo::drivers::PointCloud>();
       if (cloud->ParseFromString(message.content)) {
-        slam_system_->ProcessLidar(cloud);
+        ProcessLidarCloud(cloud, true);
+      }
+    } else if (dual_lidar_fusion_ &&
+               message.channel_name == config_.dual_lidar.secondary_channel) {
+      auto cloud = std::make_shared<apollo::drivers::PointCloud>();
+      if (cloud->ParseFromString(message.content)) {
+        ProcessLidarCloud(cloud, false);
+      }
+    } else if (!dual_lidar_fusion_ &&
+               message.channel_name == config_.channels.lidar) {
+      auto cloud = std::make_shared<apollo::drivers::PointCloud>();
+      if (cloud->ParseFromString(message.content)) {
+        ProcessLidarCloud(cloud, true);
       }
     } else if (message.channel_name == config_.channels.imu) {
       if (config_.channels.imu_type == "raw") {
@@ -135,6 +289,24 @@ bool Stage1Runner::ProcessRecord(const std::string& record_path) {
   AINFO << "Finished record: " << record_path
         << ", messages=" << processed;
   return true;
+}
+
+void Stage1Runner::ProcessLidarCloud(
+    const std::shared_ptr<apollo::drivers::PointCloud>& cloud,
+    bool is_primary) {
+  if (!dual_lidar_fusion_) {
+    slam_system_->ProcessLidar(cloud);
+    return;
+  }
+  if (is_primary) {
+    dual_lidar_fusion_->PushPrimary(cloud);
+  } else {
+    dual_lidar_fusion_->PushSecondary(cloud);
+  }
+  const auto fused = dual_lidar_fusion_->TryPopFused();
+  if (fused) {
+    slam_system_->ProcessLidar(fused);
+  }
 }
 
 void Stage1Runner::ProcessCorrectedImu(

@@ -65,6 +65,11 @@ struct Stage1Dataset {
   std::vector<Stage1GpsKeyframeObservation> gps_keyframe_observations;
   std::vector<Stage1GpsRawKeyframeObservation> gps_raw_keyframe_observations;
   std::vector<lightning::GpsFullObservation> gps_full_history;
+  std::string stage1_manifest_path;
+  std::string stage1_generated_at;
+  std::string stage1_vehicle_name;
+  std::vector<std::string> dataset_sources;
+  std::vector<std::string> expanded_records;
 };
 
 struct AlignmentAnchor {

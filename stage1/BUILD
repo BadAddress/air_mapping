@@ -6,12 +6,14 @@ package(default_visibility = ["//visibility:public"])
 apollo_cc_library(
     name = "stage1",
     srcs = [
+        "dual_lidar_fusion.cc",
         "stage1_artifact_writer.cc",
         "stage1_config.cc",
         "stage1_loop_optimizer.cc",
         "stage1_runner.cc",
     ],
     hdrs = [
+        "dual_lidar_fusion.h",
         "stage1_artifact_writer.h",
         "stage1_config.h",
         "stage1_loop_optimizer.h",
@@ -41,6 +43,7 @@ apollo_cc_library(
         "//modules/common_msgs/sensor_msgs:ins_cc_proto",
         "//modules/common_msgs/sensor_msgs:pointcloud_cc_proto",
         "@com_github_jbeder_yaml_cpp//:yaml-cpp",
+        "@eigen",
         "@local_config_pcl//:pcl",
     ],
 )

@@ -12,6 +12,7 @@
 #include "yaml-cpp/yaml.h"
 
 #include "cyber/common/log.h"
+#include "modules/air_mapping/system/common/artifact_utils.h"
 
 namespace apollo {
 namespace air_mapping {
@@ -85,6 +86,126 @@ lightning::Vec3d ParseVec3CsvFields(const std::vector<std::string>& fields,
   return lightning::Vec3d(std::stod(fields[offset]),
                           std::stod(fields[offset + 1]),
                           std::stod(fields[offset + 2]));
+}
+
+std::string Trim(const std::string& value) {
+  const auto begin = value.find_first_not_of(" \t\r\n");
+  if (begin == std::string::npos) {
+    return "";
+  }
+  const auto end = value.find_last_not_of(" \t\r\n");
+  return value.substr(begin, end - begin + 1);
+}
+
+std::string UnquoteYamlScalar(std::string value) {
+  value = Trim(value);
+  if (value.size() >= 2 &&
+      ((value.front() == '"' && value.back() == '"') ||
+       (value.front() == '\'' && value.back() == '\''))) {
+    value = value.substr(1, value.size() - 2);
+  }
+  std::string result;
+  result.reserve(value.size());
+  bool escaped = false;
+  for (const char c : value) {
+    if (escaped) {
+      result.push_back(c);
+      escaped = false;
+      continue;
+    }
+    if (c == '\\') {
+      escaped = true;
+      continue;
+    }
+    result.push_back(c);
+  }
+  if (escaped) {
+    result.push_back('\\');
+  }
+  return result;
+}
+
+bool ReadManifest(const Stage2Config& config, Stage1Dataset* dataset) {
+  const std::filesystem::path manifest_path =
+      std::filesystem::path(config.input_dir) / "manifest.yaml";
+  dataset->stage1_manifest_path = manifest_path.string();
+  std::ifstream file(manifest_path);
+  if (!file.is_open()) {
+    AWARN << "Stage1 manifest not found, continue without provenance: "
+          << manifest_path.string();
+    return true;
+  }
+
+  std::string section;
+  std::string list_key;
+  bool dataset_seen = false;
+  std::string line;
+  while (std::getline(file, line)) {
+    const std::string trimmed = Trim(line);
+    if (trimmed.empty() || trimmed[0] == '#') {
+      continue;
+    }
+    if (trimmed == "dataset:") {
+      section = "dataset";
+      list_key.clear();
+      dataset_seen = true;
+      continue;
+    }
+    if (trimmed == "records:") {
+      section.clear();
+      list_key = "records";
+      continue;
+    }
+    if (trimmed.rfind("- ", 0) == 0) {
+      const std::string value = UnquoteYamlScalar(trimmed.substr(2));
+      if (section == "dataset" && list_key == "sources") {
+        dataset->dataset_sources.push_back(value);
+      } else if (section == "dataset" && list_key == "expanded_records") {
+        dataset->expanded_records.push_back(value);
+      } else if (list_key == "records" && !dataset_seen) {
+        dataset->expanded_records.push_back(value);
+      }
+      continue;
+    }
+
+    const auto separator = trimmed.find(':');
+    if (separator == std::string::npos) {
+      continue;
+    }
+    const std::string key = Trim(trimmed.substr(0, separator));
+    const std::string value =
+        UnquoteYamlScalar(trimmed.substr(separator + 1));
+    if (section == "dataset") {
+      if (key == "sources" || key == "expanded_records") {
+        list_key = key;
+      } else {
+        list_key.clear();
+      }
+      continue;
+    }
+    if (dataset_seen) {
+      continue;
+    }
+    list_key.clear();
+    if (key == "generated_at") {
+      dataset->stage1_generated_at = value;
+    } else if (key == "vehicle_name") {
+      dataset->stage1_vehicle_name = value;
+    }
+  }
+
+  if (!dataset->stage1_vehicle_name.empty() &&
+      dataset->stage1_vehicle_name != config.vehicle_name) {
+    AERROR << "Stage1 artifact vehicle mismatch: expected "
+           << config.vehicle_name << ", manifest has "
+           << dataset->stage1_vehicle_name << ". input="
+           << config.input_dir;
+    return false;
+  }
+  if (dataset->dataset_sources.empty()) {
+    dataset->dataset_sources = dataset->expanded_records;
+  }
+  return true;
 }
 
 bool LoadLidarExtrinsic(const std::string& config_path,
@@ -471,8 +592,16 @@ bool Stage1ArtifactReader::Read(const Stage2Config& config,
   dataset->gps_keyframe_observations.clear();
   dataset->gps_raw_keyframe_observations.clear();
   dataset->gps_full_history.clear();
+  dataset->stage1_manifest_path.clear();
+  dataset->stage1_generated_at.clear();
+  dataset->stage1_vehicle_name.clear();
+  dataset->dataset_sources.clear();
+  dataset->expanded_records.clear();
 
   std::unordered_map<unsigned long, size_t> id_to_index;
+  if (!ReadManifest(config, dataset)) {
+    return false;
+  }
   if (!ReadKeyframes(config, load_keyframe_clouds, dataset, &id_to_index)) {
     return false;
   }

@@ -72,7 +72,14 @@ struct Stage2Dataset {
   std::vector<Stage2RelativeEdge> relative_edges;
   std::vector<Stage2GpsAnchor> gps_anchors;
   std::string source_stage1_dir;
+  std::string source_stage1_manifest;
+  std::string source_stage1_generated_at;
+  std::string source_stage2_manifest;
+  std::string source_stage2_generated_at;
+  std::string source_stage2_vehicle_name;
   std::string source_config_path;
+  std::vector<std::string> dataset_sources;
+  std::vector<std::string> expanded_records;
   lightning::Vec3d utm_origin = lightning::Vec3d::Zero();
   bool has_utm_origin = false;
 };

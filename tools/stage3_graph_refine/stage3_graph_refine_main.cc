@@ -8,8 +8,8 @@
 
 DEFINE_string(
     config,
-    "/apollo_workspace/modules/air_mapping/conf/stage3_graph_refine.yaml",
-    "Path to air_mapping stage3 graph refinement yaml config.");
+    "/apollo_workspace/modules/air_mapping/conf/current_vehicle.yaml",
+    "Path to air_mapping top-level vehicle yaml config.");
 
 int main(int argc, char** argv) {
   google::ParseCommandLineFlags(&argc, &argv, true);

@@ -11,6 +11,7 @@
 #include "pcl/io/pcd_io.h"
 
 #include "cyber/common/log.h"
+#include "modules/air_mapping/system/common/artifact_utils.h"
 #include "modules/air_mapping/system/common/debug_utils.h"
 
 namespace apollo {
@@ -79,6 +80,9 @@ bool Stage2ArtifactWriter::Write(
   const std::filesystem::path diagnostics_dir = output_dir / "diagnostics";
   const std::filesystem::path preview_dir = output_dir / "preview";
 
+  if (!PrepareCleanOutputDirectory(output_dir, "stage2")) {
+    return false;
+  }
   if (!EnsureDirectory(output_dir) || !EnsureDirectory(keyframe_dir) ||
       !EnsureDirectory(alignment_dir) || !EnsureDirectory(diagnostics_dir)) {
     return false;
@@ -94,9 +98,38 @@ bool Stage2ArtifactWriter::Write(
       return false;
     }
     manifest << "stage: stage2_graph_opt\n";
-    manifest << "map_name: " << config.map_name << "\n";
-    manifest << "source_stage1_dir: " << config.input_dir << "\n";
-    manifest << "source_config_path: " << config.source_config_path << "\n";
+    manifest << "generated_at: " << YamlQuote(CurrentIso8601Utc()) << "\n";
+    manifest << "map_name: " << YamlQuote(config.map_name) << "\n";
+    manifest << "vehicle_name: " << YamlQuote(config.vehicle_name) << "\n";
+    manifest << "active_vehicle: " << YamlQuote(config.vehicle_name) << "\n";
+    manifest << "run_config_path: " << YamlQuote(config.run_config_path)
+             << "\n";
+    manifest << "vehicle_config_path: " << YamlQuote(config.vehicle_config_path)
+             << "\n";
+    manifest << "module_root: " << YamlQuote(config.module_root) << "\n";
+    manifest << "data_root: " << YamlQuote(config.data_root) << "\n";
+    manifest << "debug_root: " << YamlQuote(config.debug_root) << "\n";
+    manifest << "dataset:\n";
+    manifest << "  vehicle_name: " << YamlQuote(config.vehicle_name) << "\n";
+    manifest << "  source_count: " << dataset.dataset_sources.size() << "\n";
+    manifest << "  sources:\n";
+    for (const auto& source : dataset.dataset_sources) {
+      manifest << "    - " << YamlQuote(source) << "\n";
+    }
+    manifest << "  expanded_record_count: " << dataset.expanded_records.size()
+             << "\n";
+    manifest << "  expanded_records:\n";
+    for (const auto& record : dataset.expanded_records) {
+      manifest << "    - " << YamlQuote(record) << "\n";
+    }
+    manifest << "provenance:\n";
+    manifest << "  source_stage1_dir: " << YamlQuote(config.input_dir) << "\n";
+    manifest << "  source_stage1_manifest: "
+             << YamlQuote(dataset.stage1_manifest_path) << "\n";
+    manifest << "  source_stage1_generated_at: "
+             << YamlQuote(dataset.stage1_generated_at) << "\n";
+    manifest << "  source_config_path: "
+             << YamlQuote(config.source_config_path) << "\n";
     manifest << "keyframe_count: " << dataset.keyframes.size() << "\n";
     manifest << "gps_anchor_count: " << result.anchor_count << "\n";
     manifest << "gps_segment_count: " << result.segment_count << "\n";

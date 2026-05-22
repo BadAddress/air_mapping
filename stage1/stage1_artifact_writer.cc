@@ -15,6 +15,7 @@
 
 #include "cyber/common/log.h"
 #include "modules/air_mapping/system/common/debug_utils.h"
+#include "modules/air_mapping/system/common/artifact_utils.h"
 
 namespace apollo {
 namespace air_mapping {
@@ -264,8 +265,10 @@ bool WriteMatrix6(const std::filesystem::path& path,
   return true;
 }
 
-void WriteUtmAlignment(const std::filesystem::path& path,
-                       const std::vector<lightning::Keyframe::Ptr>& keyframes) {
+void WriteUtmAlignment(
+    const std::filesystem::path& path,
+    const std::vector<lightning::Keyframe::Ptr>& keyframes,
+    const Stage1GpsZLevelingResult& z_leveling_result) {
   lightning::Vec3d offset_sum = lightning::Vec3d::Zero();
   int gps_count = 0;
   for (const auto& keyframe : keyframes) {
@@ -305,6 +308,12 @@ void WriteUtmAlignment(const std::filesystem::path& path,
           "into PCD.\n";
   file << "# p_utm = p_local + offset\n";
   file << "# gps_anchor_count: " << gps_count << "\n\n";
+  file << "# gps_z_leveling_applied: "
+       << (z_leveling_result.applied ? "true" : "false") << "\n";
+  file << "# gps_z_leveling_selected_count: "
+       << z_leveling_result.selected_count << "\n";
+  file << "# gps_z_leveling_z_offset_m: "
+       << z_leveling_result.z_offset_m << "\n\n";
   file << std::fixed << std::setprecision(6);
   file << "offset_x: " << offset.x() << "\n";
   file << "offset_y: " << offset.y() << "\n";
@@ -320,6 +329,7 @@ bool Stage1ArtifactWriter::Write(
     const std::vector<lightning::GpsFullObservation>& gps_history,
     const std::vector<Stage1LoopConstraint>& loop_constraints,
     const Stage1LoopSummary& loop_summary,
+    const Stage1GpsZLevelingResult& z_leveling_result,
     lightning::CloudPtr preview_map) const {
   const std::filesystem::path output_dir(config.output.directory);
   const std::filesystem::path keyframe_dir = output_dir / "keyframes";
@@ -350,18 +360,70 @@ bool Stage1ArtifactWriter::Write(
       return false;
     }
     manifest << "stage: stage1_pure_lio_opt\n";
-    manifest << "map_name: " << config.map_name << "\n";
-    manifest << "algorithm_config_path: " << config.algorithm_config_path
+    manifest << "generated_at: " << YamlQuote(CurrentIso8601Utc()) << "\n";
+    manifest << "map_name: " << YamlQuote(config.map_name) << "\n";
+    manifest << "vehicle_name: " << YamlQuote(config.vehicle_name) << "\n";
+    manifest << "active_vehicle: " << YamlQuote(config.vehicle_name) << "\n";
+    manifest << "run_config_path: " << YamlQuote(config.run_config_path)
              << "\n";
-    manifest << "records:\n";
-    for (const auto& record : config.records) {
-      manifest << "  - " << record << "\n";
+    manifest << "vehicle_config_path: " << YamlQuote(config.vehicle_config_path)
+             << "\n";
+    manifest << "module_root: " << YamlQuote(config.module_root) << "\n";
+    manifest << "data_root: " << YamlQuote(config.data_root) << "\n";
+    manifest << "debug_root: " << YamlQuote(config.debug_root) << "\n";
+    manifest << "algorithm_config_path: "
+             << YamlQuote(config.algorithm_config_path) << "\n";
+    manifest << "dataset:\n";
+    manifest << "  vehicle_name: " << YamlQuote(config.vehicle_name) << "\n";
+    manifest << "  source_count: " << config.dataset_sources.size() << "\n";
+    manifest << "  sources:\n";
+    for (const auto& source : config.dataset_sources) {
+      manifest << "    - " << YamlQuote(source) << "\n";
     }
+    manifest << "  expanded_record_count: " << config.records.size() << "\n";
+    manifest << "  expanded_records:\n";
+    for (const auto& record : config.records) {
+      manifest << "    - " << YamlQuote(record) << "\n";
+    }
+    manifest << "dual_lidar_enabled: "
+             << (config.dual_lidar.enable ? "true" : "false") << "\n";
+    manifest << "dual_lidar_primary_channel: "
+             << YamlQuote(config.dual_lidar.primary_channel) << "\n";
+    manifest << "dual_lidar_secondary_channel: "
+             << YamlQuote(config.dual_lidar.secondary_channel) << "\n";
     manifest << "keyframe_count: " << keyframes.size() << "\n";
     manifest << "gps_full_count: " << gps_history.size() << "\n";
     manifest << "loop_closure_enabled: "
              << (loop_summary.enabled ? "true" : "false") << "\n";
     manifest << "loop_constraint_count: " << loop_constraints.size() << "\n";
+    manifest << "gps_z_leveling:\n";
+    manifest << "  enabled: "
+             << (z_leveling_result.enabled ? "true" : "false") << "\n";
+    manifest << "  applied: "
+             << (z_leveling_result.applied ? "true" : "false") << "\n";
+    manifest << "  status: " << YamlQuote(z_leveling_result.status_message)
+             << "\n";
+    manifest << "  candidate_count: "
+             << z_leveling_result.candidate_count << "\n";
+    manifest << "  selected_count: " << z_leveling_result.selected_count
+             << "\n";
+    manifest << "  max_gps_std_xy_m: " << std::fixed << std::setprecision(9)
+             << config.gps_z_leveling.max_gps_std_xy_m << "\n";
+    manifest << "  max_gps_std_z_m: " << std::fixed << std::setprecision(9)
+             << config.gps_z_leveling.max_gps_std_z_m << "\n";
+    manifest << "  require_rtk_fixed: "
+             << (config.gps_z_leveling.require_rtk_fixed ? "true" : "false")
+             << "\n";
+    manifest << "  required_sol_type: "
+             << config.gps_z_leveling.required_sol_type << "\n";
+    manifest << "  min_samples: " << config.gps_z_leveling.min_samples << "\n";
+    manifest << "  gps_mean_z: " << std::fixed << std::setprecision(9)
+             << z_leveling_result.gps_mean_z << "\n";
+    manifest << "  lio_mean_z_before: "
+             << z_leveling_result.lio_mean_z_before << "\n";
+    manifest << "  lio_mean_z_after: "
+             << z_leveling_result.lio_mean_z_after << "\n";
+    manifest << "  z_offset_m: " << z_leveling_result.z_offset_m << "\n";
     manifest << "coordinate_frame: local_lio_enu_aligned\n";
     manifest << "relative_edges: optimized_adjacent_pose_deltas\n";
     manifest
@@ -370,7 +432,8 @@ bool Stage1ArtifactWriter::Write(
     manifest << "output_format_version: 3\n";
   }
 
-  WriteUtmAlignment(output_dir / "utm_alignment.txt", keyframes);
+  WriteUtmAlignment(output_dir / "utm_alignment.txt", keyframes,
+                    z_leveling_result);
 
   {
     std::ofstream poses_compat(keyframe_dir / "poses_lio.tum");
@@ -506,6 +569,51 @@ bool Stage1ArtifactWriter::Write(
             << loop_summary.optimizer_iterations << "," << std::fixed
             << std::setprecision(9) << loop_summary.chi2_before << ","
             << loop_summary.chi2_after << "\n";
+  }
+
+  {
+    std::ofstream summary(diagnostics_dir / "gps_z_leveling_summary.csv");
+    if (!summary.is_open()) {
+      AERROR << "Failed to write gps_z_leveling_summary.csv";
+      return false;
+    }
+    summary << "enabled,applied,status_message,candidate_count,selected_count,"
+            << "max_gps_std_xy_m,max_gps_std_z_m,require_rtk_fixed,"
+            << "required_sol_type,min_samples,max_abs_z_offset_m,gps_mean_z,"
+            << "lio_mean_z_before,lio_mean_z_after,z_offset_m\n";
+    summary << (z_leveling_result.enabled ? 1 : 0) << ","
+            << (z_leveling_result.applied ? 1 : 0) << ","
+            << z_leveling_result.status_message << ","
+            << z_leveling_result.candidate_count << ","
+            << z_leveling_result.selected_count << "," << std::fixed
+            << std::setprecision(9)
+            << config.gps_z_leveling.max_gps_std_xy_m << ","
+            << config.gps_z_leveling.max_gps_std_z_m << ","
+            << (config.gps_z_leveling.require_rtk_fixed ? 1 : 0) << ","
+            << config.gps_z_leveling.required_sol_type << ","
+            << config.gps_z_leveling.min_samples << ","
+            << config.gps_z_leveling.max_abs_z_offset_m << ","
+            << z_leveling_result.gps_mean_z << ","
+            << z_leveling_result.lio_mean_z_before << ","
+            << z_leveling_result.lio_mean_z_after << ","
+            << z_leveling_result.z_offset_m << "\n";
+
+    std::ofstream samples(diagnostics_dir / "gps_z_leveling_samples.csv");
+    if (!samples.is_open()) {
+      AERROR << "Failed to write gps_z_leveling_samples.csv";
+      return false;
+    }
+    samples << "keyframe_id,timestamp,selected,reject_reason,gps_z,"
+            << "lio_z_before,lio_z_after,std_x,std_y,std_z,sol_type\n";
+    for (const auto& sample : z_leveling_result.samples) {
+      samples << sample.keyframe_id << "," << std::fixed
+              << std::setprecision(9) << sample.timestamp << ","
+              << (sample.selected ? 1 : 0) << "," << sample.reject_reason
+              << "," << sample.gps_z << "," << sample.lio_z_before << ","
+              << sample.lio_z_after << "," << sample.std_x << ","
+              << sample.std_y << "," << sample.std_z << ","
+              << sample.sol_type << "\n";
+    }
   }
 
   {

@@ -4,23 +4,37 @@ Independent offline mapping module.
 
 ## 配置体系
 
-air_mapping 现在支持两层配置，同时兼容旧的单文件配置：
+air_mapping 现在使用单一顶层入口：
 
-- `conf/devices/*.yaml` 是设备入口配置，只描述这次运行的设备、profile 路径、record 输入和各阶段输出目录。
-- `conf/profiles/*_profile.yaml` 是车型/传感器 profile，描述通道、单双雷达、外参、GPS、Stage1/2/3 算法参数。
-- 默认设备是 `es6`，对应 `conf/devices/es6.yaml` 和 `conf/profiles/es6_profile.yaml`。
-- `minibus` 对应 `conf/devices/minibus.yaml` 和 `conf/profiles/minibus_profile.yaml`，其中双雷达通道和外参来自 `modules/air_localization` 的 `dual_lidar_liu` 分支。
-- 旧的 `conf/stage1_lio.yaml`、`conf/stage2_graph_opt.yaml`、`conf/stage3_graph_refine.yaml` 仍可直接传给 `--config` 使用。
-- 切换到小巴双雷达时，先把 `conf/devices/minibus.yaml` 里的 `device.stage1.records` 改成实际 record 路径，然后传 `--config=/apollo_workspace/modules/air_mapping/conf/devices/minibus.yaml`。
+- `conf/current_vehicle.yaml` 只负责选择当前车型和统一根路径。
+- `conf/vehicles/es6.yaml`、`conf/vehicles/minibus.yaml` 负责该车型的数据包路径、通道、外参和 Stage 参数。
+- 所有 stage 二进制默认直接读取 `conf/current_vehicle.yaml`，不需要你在命令行后面再加 `--config`。
+- 同一车型重跑时直接覆盖 `data/<vehicle>/...` 和 `data/debug/<analysis>/<vehicle>/...`。
+- 不同车型只会落在平行子目录下，结构保持一致。
+- Docker 内默认模块根路径是 `/apollo_workspace/modules/air_mapping`；配置中的 `/media/x/**` 外接盘路径保持原样。
 
-运行时推荐传 device manifest：
+切换车型只改：
 
-```bash
-/opt/apollo/neo/bin/stage1_lio \
-  --config=/apollo_workspace/modules/air_mapping/conf/devices/es6.yaml
+```yaml
+air_mapping:
+  active_vehicle: "minibus"
+  active_vehicle_config: "conf/vehicles/minibus.yaml"
 ```
 
-Stage1/Stage2/Stage3 的 manifest 会记录 `device_config_path`、`profile_config_path`、`device_id`、`vehicle_name`，便于后续诊断和结果追溯。
+统一产物路径：
+
+- `data/<vehicle>/stage1_lio`
+- `data/<vehicle>/stage2_graph_opt`
+- `data/<vehicle>/stage3_graph_refine`
+- `data/debug/<analysis>/<vehicle>/<stage>`
+
+默认入口：
+
+```bash
+/opt/apollo/neo/bin/stage1_lio
+/opt/apollo/neo/bin/stage2_graph_opt
+/opt/apollo/neo/bin/stage3_graph_refine
+```
 
 ## Stage 1: Pure LIO + LiDAR-Only OPT
 
@@ -30,20 +44,26 @@ front-end finishes, Stage 1 can run LiDAR-only loop detection and pose graph
 optimization using LIO relative edges plus NDT-verified loop edges. GPS is only
 recorded for later stages; it is not fused in Stage 1.
 
-Edit `conf/devices/es6.yaml` before running:
+Edit current vehicle profile before running:
 
 ```yaml
-device:
-  profile_path: /apollo_workspace/modules/air_mapping/conf/profiles/es6_profile.yaml
-  stage1:
-    records:
-      - /path/to/record_directory
-    output_dir: /apollo_workspace/modules/air_mapping/data/es6/stage1_lio
+dataset:
+  records: /path/to/record_directory
 ```
 
 Each `records` entry may be either a single record file or a directory
 containing split record files. Directory entries are expanded and processed in
 file-name order.
+
+车型配置说明：
+
+- `profile.vehicle_name` 决定产物子目录名，顶层配置中的 `active_vehicle` 是默认回退值。
+- `dataset.records` 是当前车型的数据包入口，支持单文件或目录。
+- `channels.*` 是 IMU、GPS、heading、主 LiDAR topic。
+- `dual_lidar_fusion.enable=true` 时，Stage 1 会启用离线双雷达同步融合。
+- `dual_lidar.channels`、`dual_lidar.sync`、`dual_lidar.derived` 定义双雷达 topic、同步阈值和外参；副雷达会先变换到主雷达坐标系，再送入原 LIO 前端。
+- `gps_z_leveling.enable=true` 时，Stage 1 会用高质量 GPS anchor 的平均高程给最终 LIO 输出做一次全局 Z 常量校平；`es6` 默认关闭，`minibus` 默认开启。
+- 顶层模式下这些派生路径只在运行时注入，车辆 profile 不再手写 `stage1/stage2/stage3` 的产物路径。
 
 Build:
 
@@ -54,8 +74,7 @@ buildtool build -p modules/air_mapping/
 Run:
 
 ```bash
-/opt/apollo/neo/bin/stage1_lio \
-  --config=/apollo_workspace/modules/air_mapping/conf/devices/es6.yaml
+/opt/apollo/neo/bin/stage1_lio
 ```
 
 Primary artifacts:
@@ -73,6 +92,8 @@ Primary artifacts:
 - `gps/gps_keyframe_raw_assoc.csv`
 - `utm_alignment.txt`
 - `diagnostics/loop_summary.csv`
+- `diagnostics/gps_z_leveling_summary.csv`
+- `diagnostics/gps_z_leveling_samples.csv`
 - `diagnostics/keyframe_diagnostics.csv`
 - `preview/lio_global_preview.pcd`
 - `preview/lio_opt_global_preview.pcd`
@@ -83,12 +104,20 @@ Stage 1 的原则是保留 LIO 前端结果和 GPS 原始可复现观测，不�
 位置。后续 Stage 2/Stage 3 可以基于这些表重新构建 lever arm、heading offset、
 GPS anchor 筛选、outage/support 一致性等优化模型。
 
+`gps_z_leveling` 是 Stage 1 的可选初步高程基准修正，不是 GPS 融合：
+
+- 它只筛选 `gps/gps_keyframe_assoc.csv` 里 `std_x/std_y/std_z` 有效且大于 0、`std_x/std_y <= max_gps_std_xy_m`、`std_z <= max_gps_std_z_m` 且满足 RTK fixed 要求的 anchor。
+- 计算 `z_offset_m = mean(gps_utm_z) - mean(lio_opt_z)`，然后把所有最终 `lio_opt` pose 整体加同一个 Z 平移。
+- 它不改变 LIO 前端原始 `lio_raw`，也不逐帧约束 Z，所以不会把真实道路起伏压平。
+- `diagnostics/gps_z_leveling_summary.csv` 记录是否启用、是否应用、样本数、均值和最终 `z_offset_m`。
+- `diagnostics/gps_z_leveling_samples.csv` 记录每个候选 GPS anchor 的筛选结果和 reject reason，便于你判断阈值是否过严或 GPS 质量是否不足。
+
 `gps/gps_full.csv` 记录每一组配对成功的 GNSS BestPose + Heading：
 
 - `antenna_x/y/z` 是蘑菇头天线 UTM 坐标，未做杆臂补偿。
 - `imu_x/y/z` 是在线流程用 GNSS heading 和当前配置杆臂补偿出的 IMU UTM 坐标。
 - `heading_rad`、`pitch_rad` 是 GNSS 原始姿态观测，`heading_std_deg`、`pitch_std_deg` 是其质量。
-- `std_x/y/z`、`sol_status`、`sol_type`、`satellite_tracked` 用于后续高精 GPS 筛选和加权。
+- `std_x/y/z`、`sol_status`、`sol_type`、`satellite_tracked` 主要用于后续诊断与质量分析，其中当前筛选逻辑统一不再依赖 `satellite_tracked`。
 
 `gps/gps_keyframe_assoc.csv` 是兼容旧流程的稀疏 keyframe GPS anchor：
 
@@ -139,21 +168,15 @@ an optional global heading bias, so the optimized lever arm does not absorb all
 heading mismatch by itself. This makes the Stage 1 / Stage 2 interface clearer
 and keeps Stage 3 from inheriting a biased GPS frame.
 
-Edit the `stage2` block in `conf/devices/es6.yaml` before running:
-
-```yaml
-device:
-  stage2:
-    input_dir: /apollo_workspace/modules/air_mapping/data/es6/stage1_lio
-    output_dir: /apollo_workspace/modules/air_mapping/data/es6/stage2_graph_opt
-```
-
-Run:
+Stage 2 reads the current vehicle profile automatically. Run:
 
 ```bash
-/opt/apollo/neo/bin/stage2_graph_opt \
-  --config=/apollo_workspace/modules/air_mapping/conf/devices/es6.yaml
+/opt/apollo/neo/bin/stage2_graph_opt
 ```
+
+顶层配置模式下 Stage 2 输入固定为 `data/<vehicle>/stage1_lio`，输出固定为
+`data/<vehicle>/stage2_graph_opt`；`source_config_path` 会写入当前车辆 yaml，供后续
+Stage 3 读取 LiDAR 外参。
 
 Primary artifacts:
 
@@ -216,7 +239,7 @@ Stage 2 输出的是一组可追踪、可回放的中间结果，而不是只输
 
 - `selected` 表示该样本是否进入杆臂优化。
 - `reject_reason` 说明样本被排除的原因，例如 `std_xy_too_large` 或 `interp_gap_too_large`。
-- `sol_status`、`sol_type`、`satellite_tracked`、`heading_std_deg`、`gnss_lio_yaw_diff_deg` 用于解释样本质量。
+- `sol_status`、`sol_type`、`satellite_tracked`、`heading_std_deg`、`gnss_lio_yaw_diff_deg` 用于解释样本质量，但当前有效样本门控不再使用 `satellite_tracked`。
 - `pred_initial_*` 和 `pred_optimized_*` 是标定前后预测的天线位置。
 - `residual_initial_*` 和 `residual_optimized_*` 用于定位是 lever arm、heading 还是时间同步在拉坏结果。
 - `lio_raw_yaw_rad`、`lio_opt_yaw_rad`、`gnss_heading_rad`、`gnss_pitch_rad`、
@@ -267,21 +290,14 @@ each block is ICP-matched against nearby GPS-supported support submaps and
 optimized through one representative SE3 prior, preventing rubber-band
 deformation inside the outage.
 
-Edit the `stage3` block in `conf/devices/es6.yaml` before running:
-
-```yaml
-device:
-  stage3:
-    input_dir: /apollo_workspace/modules/air_mapping/data/es6/stage2_graph_opt
-    output_dir: /apollo_workspace/modules/air_mapping/data/es6/stage3_graph_refine
-```
-
-Run:
+Stage 3 reads the current vehicle profile automatically. Run:
 
 ```bash
-/opt/apollo/neo/bin/stage3_graph_refine \
-  --config=/apollo_workspace/modules/air_mapping/conf/devices/es6.yaml
+/opt/apollo/neo/bin/stage3_graph_refine
 ```
+
+顶层配置模式下 Stage 3 输入固定为 `data/<vehicle>/stage2_graph_opt`，输出固定为
+`data/<vehicle>/stage3_graph_refine`。
 
 Primary artifacts:
 
@@ -311,6 +327,8 @@ Primary artifacts:
 ```bash
 modules/air_mapping/scripts/viz.sh 12322
 ```
+
+`viz.sh` 默认读取 `conf/current_vehicle.yaml`，因此文件列表和默认 PCD/alignment 都会随当前车型切换。
 
 打开：
 

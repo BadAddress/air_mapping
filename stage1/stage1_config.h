@@ -18,6 +18,14 @@ struct ChannelConfig {
   std::string gps_odom = "/apollo/sensor/gnss/odometry";
 };
 
+struct DualLidarConfig {
+  bool enable = false;
+  std::string config_path;
+  std::string primary_channel;
+  std::string secondary_channel;
+  bool allow_primary_only = true;
+};
+
 struct GpsGateConfig {
   bool enable_ins_gate = true;
   uint32_t ins_gate_status = 2;
@@ -27,10 +35,20 @@ struct GpsGateConfig {
 };
 
 struct OutputConfig {
-  std::string directory = "/apollo_workspace/modules/air_mapping/data/stage1_lio";
+  std::string directory;
   bool save_keyframe_clouds = true;
   bool save_preview_map = true;
   float preview_voxel_size = 0.2f;
+};
+
+struct GpsZLevelingConfig {
+  bool enable = false;
+  double max_gps_std_xy_m = 0.03;
+  double max_gps_std_z_m = 0.20;
+  bool require_rtk_fixed = true;
+  uint32_t required_sol_type = 50;
+  int min_samples = 10;
+  double max_abs_z_offset_m = 20.0;
 };
 
 struct LoopClosureConfig {
@@ -65,12 +83,20 @@ struct LoopClosureConfig {
 };
 
 struct Stage1Config {
+  std::string run_config_path;
+  std::string vehicle_config_path;
+  std::string vehicle_name = "unknown";
+  std::string module_root = "/apollo_workspace/modules/air_mapping";
+  std::string data_root = "/apollo_workspace/modules/air_mapping/data";
+  std::string debug_root = "/apollo_workspace/modules/air_mapping/data/debug";
+  std::vector<std::string> dataset_sources;
   std::vector<std::string> records;
   std::string map_name = "stage1_lio";
-  std::string algorithm_config_path =
-      "/apollo_workspace/modules/air_mapping/conf/stage1_lio.yaml";
+  std::string algorithm_config_path;
   ChannelConfig channels;
+  DualLidarConfig dual_lidar;
   GpsGateConfig gps_gate;
+  GpsZLevelingConfig gps_z_leveling;
   OutputConfig output;
   LoopClosureConfig loop_closure;
 };

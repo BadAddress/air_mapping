@@ -9,6 +9,7 @@ apollo_cc_library(
     hdrs = ["air_mapping_viz_server.h"],
     deps = [
         "//cyber",
+        "//modules/air_mapping/system:lightning_common",
         "@com_github_jbeder_yaml_cpp//:yaml-cpp",
         "@com_github_nlohmann_json//:json",
         "@eigen",

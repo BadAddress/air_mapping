@@ -6,8 +6,8 @@
 #include "modules/air_mapping/stage1/stage1_runner.h"
 
 DEFINE_string(config,
-              "/apollo_workspace/modules/air_mapping/conf/stage1_lio.yaml",
-              "Path to air_mapping stage1 LIO yaml config.");
+              "/apollo_workspace/modules/air_mapping/conf/current_vehicle.yaml",
+              "Path to air_mapping top-level vehicle yaml config.");
 
 int main(int argc, char** argv) {
   google::ParseCommandLineFlags(&argc, &argv, true);
@@ -27,4 +27,3 @@ int main(int argc, char** argv) {
   AINFO << "air_mapping stage1_lio finished";
   return 0;
 }
-

@@ -3,9 +3,11 @@
 #include <algorithm>
 #include <exception>
 #include <filesystem>
+#include <fstream>
 #include <system_error>
 
 #include "cyber/common/log.h"
+#include "modules/air_mapping/system/common/run_config.h"
 #include "yaml-cpp/yaml.h"
 
 namespace apollo {
@@ -27,6 +29,11 @@ std::vector<std::string> LoadRecordList(const YAML::Node& records_node) {
     records.push_back(records_node.as<std::string>());
   }
   return records;
+}
+
+std::string ReadString(const YAML::Node& node, const std::string& key,
+                       const std::string& default_value) {
+  return node && node[key] ? node[key].as<std::string>() : default_value;
 }
 
 void ExpandRecordPath(const std::string& path, std::vector<std::string>* records) {
@@ -68,6 +75,122 @@ std::vector<std::string> ExpandRecordPaths(const std::vector<std::string>& input
   return records;
 }
 
+std::string ReadProfileVehicleName(const YAML::Node& yaml,
+                                   const std::string& fallback) {
+  if (yaml["profile"] && yaml["profile"]["vehicle_name"]) {
+    return yaml["profile"]["vehicle_name"].as<std::string>();
+  }
+  if (yaml["vehicle"] && yaml["vehicle"]["name"]) {
+    return yaml["vehicle"]["name"].as<std::string>();
+  }
+  return fallback;
+}
+
+std::string VehicleStageDir(const std::string& data_root,
+                            const std::string& vehicle,
+                            const std::string& stage_dir) {
+  return (std::filesystem::path(data_root) / vehicle / stage_dir).string();
+}
+
+std::string WriteRuntimeStage1Yaml(const YAML::Node& yaml,
+                                   const Stage1Config& config) {
+  const std::filesystem::path runtime_dir =
+      std::filesystem::path(config.data_root) / config.vehicle_name /
+      "runtime_config";
+  std::error_code error;
+  std::filesystem::create_directories(runtime_dir, error);
+  if (error) {
+    AERROR << "Failed to create runtime config directory: "
+           << runtime_dir.string() << ", error: " << error.message();
+    return "";
+  }
+  const auto runtime_path = runtime_dir / "stage1_resolved_config.yaml";
+  std::ofstream file(runtime_path);
+  if (!file.is_open()) {
+    AERROR << "Failed to write runtime stage1 config: "
+           << runtime_path.string();
+    return "";
+  }
+  file << yaml;
+  return runtime_path.string();
+}
+
+YAML::Node ResolveStage1Yaml(const std::string& config_path,
+                             Stage1Config* config) {
+  YAML::Node yaml = YAML::LoadFile(config_path);
+  if (!IsTopLevelRunConfig(yaml)) {
+    config->algorithm_config_path = config_path;
+    return yaml;
+  }
+
+  AirMappingRunConfig run_config;
+  if (!LoadAirMappingRunConfig(config_path, &run_config)) {
+    return YAML::Node();
+  }
+  config->run_config_path = config_path;
+  config->vehicle_config_path = run_config.resolved_vehicle_config_path;
+  config->vehicle_name =
+      ReadProfileVehicleName(run_config.vehicle_yaml, run_config.active_vehicle);
+  config->module_root = run_config.module_root;
+  config->data_root = run_config.data_root;
+  config->debug_root = run_config.debug_root;
+  config->algorithm_config_path = run_config.resolved_vehicle_config_path;
+  config->map_name = config->vehicle_name + "_stage1_lio";
+  config->output.directory =
+      VehicleStageDir(config->data_root, config->vehicle_name, "stage1_lio");
+  if (run_config.vehicle_yaml["stage1"]) {
+    run_config.vehicle_yaml["stage1"]["output_dir"] = config->output.directory;
+    if (!run_config.vehicle_yaml["stage1"]["map_name"]) {
+      run_config.vehicle_yaml["stage1"]["map_name"] = config->map_name;
+    }
+  }
+  const std::string runtime_config =
+      WriteRuntimeStage1Yaml(run_config.vehicle_yaml, *config);
+  if (runtime_config.empty()) {
+    return YAML::Node();
+  }
+  config->algorithm_config_path = runtime_config;
+  return run_config.vehicle_yaml;
+}
+
+void LoadDualLidarConfig(const YAML::Node& yaml, Stage1Config* config) {
+  if (config == nullptr) {
+    return;
+  }
+  if (yaml["dual_lidar"] && yaml["dual_lidar"]["enable"]) {
+    config->dual_lidar.enable = yaml["dual_lidar"]["enable"].as<bool>();
+  }
+  if (yaml["dual_lidar_fusion"] && yaml["dual_lidar_fusion"]["enable"]) {
+    config->dual_lidar.enable =
+        yaml["dual_lidar_fusion"]["enable"].as<bool>();
+  }
+  if (!config->dual_lidar.enable) {
+    return;
+  }
+
+  config->dual_lidar.config_path = config->algorithm_config_path;
+  const auto& dual = yaml["dual_lidar"];
+  if (dual && dual["sync"] && dual["sync"]["allow_primary_only"]) {
+    config->dual_lidar.allow_primary_only =
+        dual["sync"]["allow_primary_only"].as<bool>();
+  }
+  if (dual && dual["channels"]) {
+    const std::string primary =
+        ReadString(dual, "primary_lidar", std::string("right"));
+    const std::string secondary =
+        ReadString(dual, "secondary_lidar", std::string("left"));
+    const auto& channels = dual["channels"];
+    if (channels[primary]) {
+      config->dual_lidar.primary_channel = channels[primary].as<std::string>();
+      config->channels.lidar = config->dual_lidar.primary_channel;
+    }
+    if (channels[secondary]) {
+      config->dual_lidar.secondary_channel =
+          channels[secondary].as<std::string>();
+    }
+  }
+}
+
 }  // namespace
 
 bool LoadStage1Config(const std::string& config_path, Stage1Config* config) {
@@ -76,20 +199,25 @@ bool LoadStage1Config(const std::string& config_path, Stage1Config* config) {
   }
 
   try {
-    YAML::Node yaml = YAML::LoadFile(config_path);
-    config->algorithm_config_path = config_path;
+    YAML::Node yaml = ResolveStage1Yaml(config_path, config);
+    if (!yaml) {
+      return false;
+    }
+    const bool use_top_level_paths = !config->run_config_path.empty();
 
     if (yaml["stage1"]) {
       const auto& stage = yaml["stage1"];
-      if (stage["records"]) {
+      if (!use_top_level_paths && stage["records"]) {
         config->records = LoadRecordList(stage["records"]);
-      } else if (stage["record"]) {
+        config->dataset_sources = config->records;
+      } else if (!use_top_level_paths && stage["record"]) {
         config->records = LoadRecordList(stage["record"]);
+        config->dataset_sources = config->records;
       }
-      if (stage["map_name"]) {
+      if (!use_top_level_paths && stage["map_name"]) {
         config->map_name = stage["map_name"].as<std::string>();
       }
-      if (stage["output_dir"]) {
+      if (!use_top_level_paths && stage["output_dir"]) {
         config->output.directory = stage["output_dir"].as<std::string>();
       }
       if (stage["save_keyframe_clouds"]) {
@@ -103,6 +231,15 @@ bool LoadStage1Config(const std::string& config_path, Stage1Config* config) {
         config->output.preview_voxel_size =
             stage["preview_voxel_size"].as<float>();
       }
+    }
+    if (config->records.empty() && yaml["dataset"]) {
+      const auto& dataset = yaml["dataset"];
+      if (dataset["records"]) {
+        config->records = LoadRecordList(dataset["records"]);
+      } else if (dataset["record"]) {
+        config->records = LoadRecordList(dataset["record"]);
+      }
+      config->dataset_sources = config->records;
     }
 
     if (yaml["channels"]) {
@@ -131,6 +268,8 @@ bool LoadStage1Config(const std::string& config_path, Stage1Config* config) {
       }
     }
 
+    LoadDualLidarConfig(yaml, config);
+
     if (yaml["gps_heading_init"] && yaml["gps_heading_init"]["enable"]) {
       config->gps_gate.enable_gps_heading_init =
           yaml["gps_heading_init"]["enable"].as<bool>();
@@ -158,6 +297,37 @@ bool LoadStage1Config(const std::string& config_path, Stage1Config* config) {
       if (gps["ins_gate_pos_type"]) {
         config->gps_gate.ins_gate_pos_type =
             gps["ins_gate_pos_type"].as<uint32_t>();
+      }
+    }
+
+    if (yaml["gps_z_leveling"]) {
+      const auto& leveling = yaml["gps_z_leveling"];
+      if (leveling["enable"]) {
+        config->gps_z_leveling.enable = leveling["enable"].as<bool>();
+      }
+      if (leveling["max_gps_std_xy_m"]) {
+        config->gps_z_leveling.max_gps_std_xy_m =
+            leveling["max_gps_std_xy_m"].as<double>();
+      }
+      if (leveling["max_gps_std_z_m"]) {
+        config->gps_z_leveling.max_gps_std_z_m =
+            leveling["max_gps_std_z_m"].as<double>();
+      }
+      if (leveling["require_rtk_fixed"]) {
+        config->gps_z_leveling.require_rtk_fixed =
+            leveling["require_rtk_fixed"].as<bool>();
+      }
+      if (leveling["required_sol_type"]) {
+        config->gps_z_leveling.required_sol_type =
+            leveling["required_sol_type"].as<uint32_t>();
+      }
+      if (leveling["min_samples"]) {
+        config->gps_z_leveling.min_samples =
+            leveling["min_samples"].as<int>();
+      }
+      if (leveling["max_abs_z_offset_m"]) {
+        config->gps_z_leveling.max_abs_z_offset_m =
+            leveling["max_abs_z_offset_m"].as<double>();
       }
     }
 
@@ -286,6 +456,16 @@ bool LoadStage1Config(const std::string& config_path, Stage1Config* config) {
     AERROR << "No record files found from configured inputs in " << config_path;
     return false;
   }
+  if (config->output.directory.empty()) {
+    AERROR << "Stage1 output directory is empty in " << config_path;
+    return false;
+  }
+  auto& z_leveling = config->gps_z_leveling;
+  z_leveling.max_gps_std_xy_m = std::max(z_leveling.max_gps_std_xy_m, 1e-4);
+  z_leveling.max_gps_std_z_m = std::max(z_leveling.max_gps_std_z_m, 1e-4);
+  z_leveling.min_samples = std::max(z_leveling.min_samples, 1);
+  z_leveling.max_abs_z_offset_m =
+      std::max(z_leveling.max_abs_z_offset_m, 0.0);
   auto& loop = config->loop_closure;
   loop.loop_kf_gap = std::max(loop.loop_kf_gap, 1);
   loop.min_keyframe_gap = std::max(loop.min_keyframe_gap, 1);

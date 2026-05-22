@@ -2,14 +2,11 @@
 # ============================================================
 # stage1_lio 启动脚本
 # 用法:
-#   ./scripts/stage1.sh                     # 使用默认配置
-#   ./scripts/stage1.sh /path/to/config.yaml # 指定配置文件
+#   ./scripts/stage1.sh
 # ============================================================
 
 BINARY="/opt/apollo/neo/bin/stage1_lio"
-DEFAULT_CONFIG="/apollo_workspace/modules/air_mapping/conf/stage1_lio.yaml"
-
-CONFIG="${1:-$DEFAULT_CONFIG}"
+DEFAULT_CONFIG="/apollo_workspace/modules/air_mapping/conf/current_vehicle.yaml"
 
 if [ ! -f "$BINARY" ]; then
     echo "[ERROR] Binary not found: $BINARY"
@@ -17,15 +14,15 @@ if [ ! -f "$BINARY" ]; then
     exit 1
 fi
 
-if [ ! -f "$CONFIG" ]; then
-    echo "[ERROR] Config not found: $CONFIG"
+if [ ! -f "$DEFAULT_CONFIG" ]; then
+    echo "[ERROR] Top-level config not found: $DEFAULT_CONFIG"
     exit 1
 fi
 
 echo "============================================"
 echo " stage1_lio"
-echo " config: $CONFIG"
+echo " config: $DEFAULT_CONFIG"
 echo " binary: $BINARY"
 echo "============================================"
 
-exec "$BINARY" --config="$CONFIG"
+exec "$BINARY"

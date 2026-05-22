@@ -12,10 +12,10 @@ This directory contains read-only evaluation tools for offline mapping artifacts
 - `stage2_3d_comparison.html`
 - trajectory, residual, GPS quality, height, lever-arm, and pose-delta plots
 
-Default input:
+Default input is derived from `../conf/current_vehicle.yaml`:
 
 ```bash
-modules/air_mapping/data/stage2_graph_opt
+data/<active_vehicle>/stage2_graph_opt
 ```
 
 Run with defaults:
@@ -25,22 +25,34 @@ cd modules/air_mapping/debug_eval_tools
 ./run_eval_stage2.sh
 ```
 
-By default, results overwrite `eval_results/stage2_alignment` so the browser can
-keep using the same report paths. Add `--timestamp` only when you want to keep a
+By default, results overwrite
+`data/debug/stage2_alignment/<active_vehicle>/stage2` so the browser can keep
+using the same report paths. Add `--timestamp` only when you want to keep a
 separate historical run.
+
+报告头会直接展示 Stage2 manifest 中的 provenance 字段，包括：
+
+- `generated_at`
+- `vehicle_name` / `vehicle_config_path`
+- `run_config_path`
+- `dataset.sources` 和 `dataset.expanded_records`
+- `source_stage1_dir` / `source_stage1_manifest`
+- `source_stage1_generated_at`
+
+这部分信息用于快速检查是否串车、串包，或者 Stage1/Stage2 产物被误用。
 
 Run against another Stage 2 output:
 
 ```bash
-./run_eval_stage2.sh --stage2_dir /path/to/stage2_graph_opt
+./run_eval_stage2.sh --stage2_dir /path/to/data/<vehicle>/stage2_graph_opt
 ```
 
 Useful direct options:
 
 ```bash
 python3 eval_stage2_alignment.py \
-  --stage2_dir ../data/stage2_graph_opt \
-  --output_dir ./eval_results/stage2_alignment
+  --stage2_dir ../data/<vehicle>/stage2_graph_opt \
+  --output_dir ../data/debug/stage2_alignment/<vehicle>/stage2
 ```
 
 Key metrics:

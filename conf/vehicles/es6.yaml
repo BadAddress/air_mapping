@@ -1,0 +1,255 @@
+# ES6 single-LiDAR vehicle profile.
+# Top-level paths are derived from conf/current_vehicle.yaml.
+# Runtime stage output paths are injected from the top-level config.
+
+profile:
+  vehicle_name: "es6"
+  description: "Current single-LiDAR air_mapping profile."
+  enable_dual_lidar: false
+
+dataset:
+  records: "/media/x/DATA4TB/fuxing_new/fuxing_recovered"
+
+stage1:
+  save_keyframe_clouds: true
+  save_preview_map: true
+  preview_voxel_size: 0.3
+
+gps_z_leveling:
+  enable: false
+  max_gps_std_xy_m: 0.03
+  max_gps_std_z_m: 0.20
+  require_rtk_fixed: true
+  required_sol_type: 50
+  min_samples: 10
+  max_abs_z_offset_m: 20.0
+
+channels:
+  imu: "/apollo/sensor/gnss/corrected_imu"
+  imu_type: "corrected"
+  lidar: "/apollo/sensor/rslidar/up/PointCloud2"
+  heading: "/apollo/sensor/gnss/heading"
+  gnss_best_pose: "/apollo/sensor/gnss/best_pose"
+  ins_stat: "/apollo/sensor/gnss/ins_stat"
+  gps_odom: "/apollo/sensor/gnss/odometry"
+
+dual_lidar_fusion:
+  enable: false
+
+fasterlio:
+  lidar_type: 2
+  scan_line: 128
+  blind: 2.0
+  time_scale: 0.001
+  kf_dist_th: 3.0
+  kf_angle_th: 15
+  skip_lidar_num: 2
+  point_filter_num: 8
+  mapping_point_filter_num: 6
+  max_iteration: 5
+  filter_size_scan: 0.3
+  filter_size_map: 0.3
+  ivox_grid_resolution: 0.3
+  ivox_nearby_type: 18
+  esti_plane_threshold: 0.08
+  use_aa: false
+  acc_cov: 0.1
+  gyr_cov: 0.1
+  b_acc_cov: 0.0001
+  b_gyr_cov: 0.0001
+  extrinsic_est_en: false
+  extrinsic_T: [0.0952067249, 0.9585084215, 1.7200000000]
+  extrinsic_R: [-0.9999224567, 0.0045407998, -0.0115957615,
+                -0.0045305680, -0.9999893242, -0.0009084909,
+                -0.0115997630, -0.0008558851, 0.9999323542]
+  keep_first_imu_estimation: false
+
+system:
+  with_ui: false
+  with_2dui: false
+  with_g2p5: false
+  step_on_kf: false
+  pub_tf: false
+
+map_save_filter:
+  enable: true
+  voxel_size_m: 0.2
+  chunk_voxel_size_m: 0.2
+  remove_invalid_points: true
+  enable_height_crop: true
+  min_z_m: -30.0
+  max_z_m: 30.0
+  enable_statistical_outlier_removal: true
+  sor_mean_k: 20
+  sor_stddev_mul_thresh: 1.0
+
+g2p5:
+  esti_floor: false
+  min_th_floor: 0.10
+  max_th_floor: 1.24
+  lidar_height: 0.0
+  floor_height: -1.2
+  grid_map_resolution: 0.1
+
+gps_fusion:
+  enable: false
+  enable_gps_position: true
+  enable_gps_heading: false
+  enable_gps_height: true
+  min_kf_distance_for_gps_attach: 5.0
+  weight_lio_relative: 1.0
+  weight_gps_position: 1.0
+  weight_gps_height: 1.0
+  weight_gps_heading: 1.0
+  weight_height_smooth: 2.0
+  huber_lio_delta: 1.0
+  huber_gps_pos_delta: 2.0
+  cauchy_heading_delta: 5.0
+  min_gps_std_xy: 0.05
+  max_gps_info_xy: 400.0
+  gps_anchor_min_spacing_m: 8.0
+  gps_segment_break_distance_m: 25.0
+  gps_boundary_ramp_distance_m: 15.0
+  gps_segment_min_points: 3
+  gps_height_trend_anchor_spacing_m: 15.0
+  gps_height_trend_min_points: 5
+  gps_height_trend_smoothing_lambda: 200.0
+  gps_height_trend_min_std_z: 0.05
+  enable_outage_rigid_segments: true
+  enable_outage_block_scan_to_map: true
+  outage_rigid_min_keyframes: 8
+  outage_rigid_min_length_m: 20.0
+  max_outage_rigid_block_length_m: 100.0
+  outage_overlap_keyframes: 5
+  outage_block_target_radius_m: 200.0
+  outage_block_source_window_radius_m: 100.0
+  outage_block_window_spacing_m: 80.0
+  outage_block_min_source_keyframes: 8
+  outage_block_target_sample_step: 2
+  outage_block_max_coarse_z_search_m: 12.0
+  outage_block_coarse_z_step_m: 4.0
+  outage_block_prior_translation_sigma_m: 0.6
+  outage_block_prior_rotation_sigma_deg: 4.0
+  disable_gps_height_on_long_outage: false
+  long_outage_threshold_m: 100.0
+  max_iterations: 100
+  verbose: false
+  heading_channel: "/apollo/sensor/gnss/heading"
+  gps_channel: "/apollo/sensor/gnss/best_pose"
+  heading_std_threshold: 1.0
+  enable_ins_gate: true
+  ins_gate_status: 2
+  ins_gate_pos_type: 56
+
+loop_closure:
+  enable: true
+  search_radius: 25.0
+  min_keyframe_gap: 50
+  loop_kf_gap: 10
+  min_id_interval: 20
+  closest_id_th: 50
+  max_candidates_per_query: 8
+  history_submap_half_range: 40
+  history_submap_step: 4
+  coarse_z_search_m: 12.0
+  coarse_z_step_m: 4.0
+  ndt_resolutions: [10.0, 5.0, 2.0, 1.0]
+  ndt_max_iterations: 40
+  ndt_score_threshold: 0.3
+  ndt_voxel_ratio: 0.1
+  use_icp_refine: false
+  icp_max_iterations: 8
+  icp_max_corr_dist: 1.0
+  icp_fitness_threshold: 0.3
+  icp_max_translation_delta: 0.20
+  icp_max_rotation_delta_deg: 3.0
+  lio_translation_sigma_m: 0.08
+  lio_rotation_sigma_deg: 1.0
+  loop_translation_sigma_m: 0.25
+  loop_rotation_sigma_deg: 3.0
+  loop_info_scale: 1.0
+  lio_huber_delta: 1.0
+  loop_cauchy_delta: 1.0
+  max_iterations: 50
+  verbose: false
+
+gps_heading_init:
+  enable: true
+  gps_to_imu_translation: [-0.423, -0.208, 0.874]
+  antenna_yaw_offset: 89.17603
+  imu_yaw_offset: 0.2197266
+
+time_sync:
+  gnss_lidar_time_offset: 0.0
+
+alignment:
+  gps_segment_break_distance_m: 30.0
+  smooth_gps_height: true
+  gps_height_smoothing_lambda: 200.0
+  min_gps_std_xy: 0.01
+  min_gps_std_z: 0.05
+  min_alignment_anchors: 3
+  constrain_to_yaw_only: false
+  robust_huber_delta_m: 2.0
+  robust_max_iterations: 5
+
+lever_arm_calibration:
+  enable: true
+  max_gps_std_xy_m: 0.03
+  max_interp_gap_s: 0.75
+  require_stage1_gps_anchor: false
+  require_rtk_fixed: true
+  required_sol_status: 0
+  required_sol_type: 50
+  max_heading_std_deg: 1.0
+  max_lio_gnss_yaw_diff_deg: 2.0
+  min_samples: 20
+  max_iterations: 5
+  prior_sigma_xy_m: 0.30
+  prior_sigma_z_m: 0.05
+  estimate_heading_bias: true
+  prior_sigma_heading_bias_deg: 1.0
+  max_heading_bias_deg: 3.0
+  huber_delta_xy_m: 0.15
+  max_correction_norm_m: 0.50
+  estimate_z: false
+  use_full_lio_orientation: false
+
+graph_refine:
+  lio_translation_sigma_m: 0.08
+  lio_rotation_sigma_deg: 1.0
+  gps_weight_scale: 1.0
+  min_gps_std_xy: 0.05
+  min_gps_std_z: 0.05
+  max_gps_info_xy: 400.0
+  max_gps_info_z: 40.0
+  use_gps_z: false
+  max_fused_gps_std_xy: 0.03
+  gps_support_max_anchor_gap_m: 20.0
+  gps_boundary_ramp_distance_m: 15.0
+  first_pose_prior_translation_sigma_m: 5.0
+  first_pose_prior_rotation_sigma_deg: 10.0
+  lio_huber_delta: 1.0
+  gps_huber_delta: 2.0
+  first_pose_prior_huber_delta: 1.0
+  enable_outage_blocks: true
+  outage_min_keyframes: 8
+  outage_min_length_m: 20.0
+  outage_max_block_length_m: 0.0
+  outage_support_overlap_keyframes: 5
+  outage_support_radius_m: 180.0
+  outage_source_voxel_size_m: 0.3
+  outage_target_voxel_size_m: 0.3
+  outage_icp_max_iterations: 50
+  outage_icp_max_corr_dist_m: 2.0
+  outage_icp_fitness_threshold: 1.0
+  outage_icp_translation_sigma_m: 0.5
+  outage_icp_rotation_sigma_deg: 3.0
+  outage_icp_huber_delta: 1.0
+  max_iterations: 80
+  verbose: false
+
+output:
+  save_preview_map: true
+  preview_voxel_size: 0.2
+  preview_keyframe_step: 1

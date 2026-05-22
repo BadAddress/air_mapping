@@ -10,7 +10,9 @@ DEFINE_string(module_root, "/apollo_workspace/modules/air_mapping",
               "air_mapping module root exposed to frontend");
 DEFINE_string(doc_root, "/apollo_workspace/modules/air_mapping/viz/frontend",
               "frontend document root");
-DEFINE_string(config, "", "optional viz config yaml");
+DEFINE_string(config,
+              "/apollo_workspace/modules/air_mapping/conf/current_vehicle.yaml",
+              "air_mapping top-level vehicle yaml");
 
 int main(int argc, char** argv) {
   google::ParseCommandLineFlags(&argc, &argv, true);

@@ -71,7 +71,6 @@ class SlamSystem {
 
         bool step_on_kf_ = true;  // 是否在关键帧处暂停p
         
-        std::string map_path_ = "./data/new_map/"; // Added map path
     };
 
     // using SaveMapService = srv::SaveMap;

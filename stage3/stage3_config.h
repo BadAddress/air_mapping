@@ -50,10 +50,14 @@ struct Stage3OutputConfig {
 };
 
 struct Stage3Config {
-  std::string input_dir =
-      "/apollo_workspace/modules/air_mapping/data/stage2_graph_opt";
-  std::string output_dir =
-      "/apollo_workspace/modules/air_mapping/data/stage3_graph_refine";
+  std::string run_config_path;
+  std::string vehicle_config_path;
+  std::string vehicle_name = "unknown";
+  std::string module_root = "/apollo_workspace/modules/air_mapping";
+  std::string data_root = "/apollo_workspace/modules/air_mapping/data";
+  std::string debug_root = "/apollo_workspace/modules/air_mapping/data/debug";
+  std::string input_dir;
+  std::string output_dir;
   std::string map_name = "stage3_graph_refine";
   GraphRefineConfig graph;
   Stage3OutputConfig output;

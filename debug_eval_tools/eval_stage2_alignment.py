@@ -21,6 +21,14 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 import numpy as np
 
 try:
+    import yaml
+
+    HAS_YAML = True
+except Exception:
+    yaml = None
+    HAS_YAML = False
+
+try:
     import matplotlib
 
     matplotlib.use("Agg")
@@ -40,6 +48,26 @@ except Exception:
     HAS_PLOTLY = False
     go = None
     pio = None
+
+
+def read_top_level_config(config_path: Path) -> Dict[str, str]:
+    result = {
+        "active_vehicle": "es6",
+        "data_root": str(config_path.parent.parent / "data"),
+        "debug_root": str(config_path.parent.parent / "data" / "debug"),
+    }
+    if not config_path.exists():
+        return result
+    for line in config_path.read_text().splitlines():
+        line = line.split("#", 1)[0].strip()
+        if ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        key = key.strip()
+        value = value.strip().strip("'\"")
+        if key in result and value:
+            result[key] = value
+    return result
 
 
 def read_csv_rows(path: Path) -> List[Dict[str, str]]:
@@ -183,6 +211,28 @@ def load_pose_delta(stage2_dir: Path) -> List[Dict[str, Any]]:
 def load_single_csv(stage2_dir: Path, relative: str) -> Dict[str, str]:
     rows = read_csv_rows(stage2_dir / relative)
     return rows[0] if rows else {}
+
+
+def load_manifest(stage2_dir: Path) -> Dict[str, Any]:
+    manifest_path = stage2_dir / "manifest.yaml"
+    if not manifest_path.exists():
+        return {"manifest_path": str(manifest_path), "available": False}
+    if HAS_YAML:
+        loaded = yaml.safe_load(manifest_path.read_text()) or {}
+        if not isinstance(loaded, dict):
+            loaded = {}
+        loaded["manifest_path"] = str(manifest_path)
+        loaded["available"] = True
+        return loaded
+
+    result: Dict[str, Any] = {"manifest_path": str(manifest_path), "available": True}
+    for line in manifest_path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        result[key.strip()] = value.strip().strip("'\"")
+    return result
 
 
 def add_path_distance(keyframes: List[Dict[str, Any]]) -> Dict[int, Dict[str, Any]]:
@@ -421,6 +471,10 @@ def create_output_dir(base_dir: Path, timestamped: bool) -> Path:
         output_dir = base_dir / datetime.now().strftime("%Y%m%d_%H%M%S")
     else:
         output_dir = base_dir
+    if not timestamped and output_dir.exists():
+        import shutil
+
+        shutil.rmtree(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     if timestamped:
         latest = base_dir / "latest"
@@ -959,6 +1013,7 @@ def fmt_stat_line(name: str, value: Dict[str, Any]) -> str:
 def write_text_report(
     output_dir: Path,
     stage2_dir: Path,
+    manifest: Dict[str, Any],
     alignment_metrics: Dict[str, Any],
     segment_metrics: Dict[str, Any],
     lever_metrics: Dict[str, Any],
@@ -972,6 +1027,26 @@ def write_text_report(
         stream.write("=" * 72 + "\n")
         stream.write(f"Generated: {datetime.now().isoformat(timespec='seconds')}\n")
         stream.write(f"Stage2 dir: {stage2_dir}\n\n")
+
+        stream.write("Provenance\n")
+        stream.write("-" * 72 + "\n")
+        dataset = manifest.get("dataset", {}) if isinstance(manifest.get("dataset"), dict) else {}
+        provenance = manifest.get("provenance", {}) if isinstance(manifest.get("provenance"), dict) else {}
+        stream.write(f"Manifest: {manifest.get('manifest_path', '')}\n")
+        stream.write(f"Stage2 generated_at: {manifest.get('generated_at', '')}\n")
+        stream.write(f"Vehicle: {manifest.get('vehicle_name', '')}\n")
+        stream.write(f"Vehicle config: {manifest.get('vehicle_config_path', '')}\n")
+        stream.write(f"Run config: {manifest.get('run_config_path', '')}\n")
+        stream.write(f"Dataset source count: {dataset.get('source_count', 0)}\n")
+        for source in dataset.get("sources", []) or []:
+            stream.write(f"Dataset source: {source}\n")
+        stream.write(f"Expanded record count: {dataset.get('expanded_record_count', 0)}\n")
+        stream.write(
+            f"Source Stage1 manifest: {provenance.get('source_stage1_manifest', manifest.get('source_stage1_manifest', ''))}\n"
+        )
+        stream.write(
+            f"Source Stage1 generated_at: {provenance.get('source_stage1_generated_at', manifest.get('source_stage1_generated_at', ''))}\n\n"
+        )
 
         stream.write("Alignment summary\n")
         stream.write("-" * 72 + "\n")
@@ -1069,6 +1144,7 @@ def html_stat_table(title: str, metric: Dict[str, Any]) -> str:
 def write_html_report(
     output_dir: Path,
     stage2_dir: Path,
+    manifest: Dict[str, Any],
     images: List[str],
     alignment_metrics: Dict[str, Any],
     segment_metrics: Dict[str, Any],
@@ -1107,6 +1183,8 @@ def write_html_report(
             block += "</section>"
             blocks.append(block)
         interactive_html = "\n".join(blocks)
+    dataset = manifest.get("dataset", {}) if isinstance(manifest.get("dataset"), dict) else {}
+    provenance = manifest.get("provenance", {}) if isinstance(manifest.get("provenance"), dict) else {}
     html_text = f"""<!DOCTYPE html>
 <html>
 <head>
@@ -1129,6 +1207,18 @@ a {{ color: #1f77b4; }}
 <body>
 <h1>Stage2 Alignment Evaluation</h1>
 <p>Stage2 dir: <code>{html.escape(str(stage2_dir))}</code></p>
+<section>
+<h2>Provenance</h2>
+<p>Manifest: <code>{html.escape(str(manifest.get('manifest_path', '')))}</code></p>
+<p>Generated at: <code>{html.escape(str(manifest.get('generated_at', '')))}</code></p>
+<p>Vehicle: <code>{html.escape(str(manifest.get('vehicle_name', '')))}</code></p>
+<p>Vehicle config: <code>{html.escape(str(manifest.get('vehicle_config_path', '')))}</code></p>
+<p>Run config: <code>{html.escape(str(manifest.get('run_config_path', '')))}</code></p>
+<p>Dataset sources: <code>{html.escape(str(dataset.get('source_count', 0)))}</code></p>
+<p>Expanded records: <code>{html.escape(str(dataset.get('expanded_record_count', 0)))}</code></p>
+<p>Stage1 manifest: <code>{html.escape(str(provenance.get('source_stage1_manifest', manifest.get('source_stage1_manifest', ''))))}</code></p>
+<p>Stage1 generated_at: <code>{html.escape(str(provenance.get('source_stage1_generated_at', manifest.get('source_stage1_generated_at', ''))))}</code></p>
+</section>
 <p>Text report: <a href="{html.escape(text_report)}">{html.escape(text_report)}</a></p>
 <div class="cards">
   <div class="card"><h3>Anchors</h3><div class="value">{segment_metrics.get("anchor_count", 0)}</div></div>
@@ -1160,6 +1250,7 @@ a {{ color: #1f77b4; }}
 def evaluate(args: argparse.Namespace) -> Path:
     stage2_dir = Path(args.stage2_dir).expanduser().resolve()
     output_dir = create_output_dir(Path(args.output_dir).expanduser().resolve(), args.timestamp)
+    manifest = load_manifest(stage2_dir)
 
     keyframes = load_keyframes(stage2_dir)
     anchors = load_anchors(stage2_dir)
@@ -1200,6 +1291,7 @@ def evaluate(args: argparse.Namespace) -> Path:
     report_name = write_text_report(
         output_dir,
         stage2_dir,
+        manifest,
         alignment_metrics,
         segment_metrics,
         lever_metrics,
@@ -1210,6 +1302,7 @@ def evaluate(args: argparse.Namespace) -> Path:
 
     stats_payload = {
         "stage2_dir": str(stage2_dir),
+        "manifest": manifest,
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "utm_origin": utm_origin,
         "alignment": alignment_metrics,
@@ -1224,6 +1317,7 @@ def evaluate(args: argparse.Namespace) -> Path:
     write_html_report(
         output_dir,
         stage2_dir,
+        manifest,
         images,
         alignment_metrics,
         segment_metrics,
@@ -1250,8 +1344,10 @@ def evaluate(args: argparse.Namespace) -> Path:
 
 def parse_args() -> argparse.Namespace:
     script_dir = Path(__file__).resolve().parent
-    default_stage2_dir = script_dir.parent / "data" / "stage2_graph_opt"
-    default_output_dir = script_dir / "eval_results" / "stage2_alignment"
+    run_config = read_top_level_config(script_dir.parent / "conf" / "current_vehicle.yaml")
+    vehicle = run_config["active_vehicle"]
+    default_stage2_dir = Path(run_config["data_root"]) / vehicle / "stage2_graph_opt"
+    default_output_dir = Path(run_config["debug_root"]) / "stage2_alignment" / vehicle / "stage2"
     parser = argparse.ArgumentParser(description="Evaluate and visualize air_mapping Stage2 alignment artifacts.")
     parser.add_argument("--stage2_dir", default=str(default_stage2_dir), help="Path to Stage2 output directory.")
     parser.add_argument("--output_dir", default=str(default_output_dir), help="Base output directory for reports.")
