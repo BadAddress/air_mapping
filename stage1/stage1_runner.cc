@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <string>
 #include <system_error>
+#include <vector>
 
 #include "cyber/common/log.h"
 #include "cyber/record/record_reader.h"
@@ -18,17 +19,6 @@ namespace stage1 {
 
 using apollo::cyber::record::RecordMessage;
 using apollo::cyber::record::RecordReader;
-
-namespace {
-
-bool IsHighPrecisionGpsSolType(uint32_t sol_type, uint32_t required_sol_type) {
-  if (sol_type == required_sol_type) {
-    return true;
-  }
-  return sol_type == 50U || sol_type == 56U;
-}
-
-}  // namespace
 
 bool Stage1Runner::Run(const Stage1Config& config) {
   config_ = config;
@@ -98,8 +88,8 @@ bool Stage1Runner::Run(const Stage1Config& config) {
     return false;
   }
 
-  const Stage1GpsZLevelingResult z_leveling_result =
-      ApplyGpsZLeveling(keyframes);
+  Stage1ZLevelingResult z_leveling_result =
+      ApplyZLeveling(keyframes, loop_summary);
 
   lightning::CloudPtr preview_map;
   if (config_.output.save_preview_map && !keyframes.empty()) {
@@ -112,107 +102,44 @@ bool Stage1Runner::Run(const Stage1Config& config) {
                       loop_summary, z_leveling_result, preview_map);
 }
 
-Stage1GpsZLevelingResult Stage1Runner::ApplyGpsZLeveling(
-    const std::vector<lightning::Keyframe::Ptr>& keyframes) const {
-  Stage1GpsZLevelingResult result;
-  result.enabled = config_.gps_z_leveling.enable;
+Stage1ZLevelingResult Stage1Runner::ApplyZLeveling(
+    const std::vector<lightning::Keyframe::Ptr>& keyframes,
+    const Stage1LoopSummary& loop_summary) const {
+  Stage1ZLevelingResult result;
+  result.enabled = config_.zleveling.enable;
   if (!result.enabled) {
     result.status_message = "disabled";
+    result.height_prior_status_message = "disabled";
     return result;
   }
-
-  double gps_z_sum = 0.0;
-  double lio_z_sum = 0.0;
-  const auto& leveling = config_.gps_z_leveling;
+  const size_t n = keyframes.size();
+  if (n < 2) {
+    result.status_message = "too_few_keyframes";
+    result.height_prior_status_message = "too_few_keyframes";
+    return result;
+  }
   for (const auto& keyframe : keyframes) {
-    if (!keyframe) {
-      continue;
+    if (!keyframe || !keyframe->GetOptPose().translation().allFinite() ||
+        !keyframe->GetLIOPose().translation().allFinite()) {
+      result.status_message = "invalid_keyframe_pose";
+      result.height_prior_status_message = "invalid_keyframe_pose";
+      return result;
     }
-    const auto gps_data = keyframe->GetGpsData();
-    if (!gps_data.has_gps || !gps_data.gps_utm_position.allFinite()) {
-      continue;
-    }
-
-    Stage1GpsZLevelingSample sample;
-    sample.keyframe_id = keyframe->GetID();
-    sample.timestamp = keyframe->GetTimestamp();
-    sample.gps_z = gps_data.gps_utm_position.z();
-    sample.lio_z_before = keyframe->GetOptPose().translation().z();
-    sample.lio_z_after = sample.lio_z_before;
-    sample.std_x = gps_data.gps_std_dev.x();
-    sample.std_y = gps_data.gps_std_dev.y();
-    sample.std_z = gps_data.gps_std_dev.z();
-    sample.sol_type = gps_data.sol_type;
-
-    const double std_xy =
-        std::max(std::abs(sample.std_x), std::abs(sample.std_y));
-    if (!std::isfinite(sample.gps_z) || !std::isfinite(sample.lio_z_before) ||
-        !std::isfinite(std_xy) || !std::isfinite(sample.std_z)) {
-      sample.reject_reason = "non_finite";
-    } else if (!(sample.std_x > 0.0) || !(sample.std_y > 0.0) ||
-               !(sample.std_z > 0.0)) {
-      sample.reject_reason = "std_not_positive";
-    } else if (std_xy > leveling.max_gps_std_xy_m) {
-      sample.reject_reason = "std_xy_too_large";
-    } else if (std::abs(sample.std_z) > leveling.max_gps_std_z_m) {
-      sample.reject_reason = "std_z_too_large";
-    } else if (leveling.require_rtk_fixed &&
-               !IsHighPrecisionGpsSolType(sample.sol_type,
-                                          leveling.required_sol_type)) {
-      sample.reject_reason = "sol_type_mismatch";
-    } else {
-      sample.selected = true;
-      sample.reject_reason = "selected";
-      gps_z_sum += sample.gps_z;
-      lio_z_sum += sample.lio_z_before;
-      ++result.selected_count;
-    }
-    result.samples.push_back(sample);
   }
 
-  result.candidate_count = result.samples.size();
-  if (result.selected_count <
-      static_cast<size_t>(std::max(leveling.min_samples, 1))) {
-    result.status_message = "not_enough_samples";
-    AWARN << "[Stage1GpsZLeveling] skip: selected=" << result.selected_count
-          << " < min_samples=" << leveling.min_samples;
-    return result;
-  }
+  result.lio_mean_z_before = loop_summary.zleveling_mean_z_before;
+  result.lio_mean_z_after = loop_summary.zleveling_mean_z_after;
 
-  result.gps_mean_z = gps_z_sum / static_cast<double>(result.selected_count);
-  result.lio_mean_z_before =
-      lio_z_sum / static_cast<double>(result.selected_count);
-  result.z_offset_m = result.gps_mean_z - result.lio_mean_z_before;
-  if (!std::isfinite(result.z_offset_m)) {
-    result.status_message = "non_finite_offset";
-    return result;
-  }
-  if (std::abs(result.z_offset_m) > leveling.max_abs_z_offset_m) {
-    result.status_message = "offset_too_large";
-    AWARN << "[Stage1GpsZLeveling] skip: z_offset=" << result.z_offset_m
-          << " exceeds max_abs_z_offset_m=" << leveling.max_abs_z_offset_m;
-    return result;
-  }
-
-  for (const auto& keyframe : keyframes) {
-    if (!keyframe) {
-      continue;
-    }
-    lightning::SE3 pose = keyframe->GetOptPose();
-    lightning::Vec3d translation = pose.translation();
-    translation.z() += result.z_offset_m;
-    keyframe->SetOptPose(lightning::SE3(pose.so3(), translation));
-  }
-  for (auto& sample : result.samples) {
-    sample.lio_z_after = sample.lio_z_before + result.z_offset_m;
-  }
-  result.lio_mean_z_after = result.lio_mean_z_before + result.z_offset_m;
-  result.applied = true;
-  result.status_message = "applied";
-  AINFO << "[Stage1GpsZLeveling] applied: selected=" << result.selected_count
-        << ", gps_mean_z=" << result.gps_mean_z
-        << ", lio_mean_z_before=" << result.lio_mean_z_before
-        << ", z_offset_m=" << result.z_offset_m;
+  result.applied = loop_summary.zleveling_optimizer_iterations > 0;
+  result.status_message = result.applied ? "applied" : "not_applied";
+  result.height_prior_applied = result.applied;
+  result.height_prior_edge_count =
+      loop_summary.zleveling_height_prior_edge_count;
+  result.max_abs_height_before_m =
+      loop_summary.zleveling_max_abs_height_before_m;
+  result.max_abs_height_after_m = loop_summary.zleveling_max_abs_height_after_m;
+  result.height_prior_status_message =
+      result.applied ? "applied" : "not_applied";
   return result;
 }
 

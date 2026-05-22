@@ -41,14 +41,9 @@ struct OutputConfig {
   float preview_voxel_size = 0.2f;
 };
 
-struct GpsZLevelingConfig {
+struct ZLevelingConfig {
   bool enable = false;
-  double max_gps_std_xy_m = 0.03;
-  double max_gps_std_z_m = 0.20;
-  bool require_rtk_fixed = true;
-  uint32_t required_sol_type = 50;
-  int min_samples = 10;
-  double max_abs_z_offset_m = 20.0;
+  double height_noise_m = 0.05;
 };
 
 struct LoopClosureConfig {
@@ -78,6 +73,8 @@ struct LoopClosureConfig {
   double loop_info_scale = 1.0;
   double lio_huber_delta = 1.0;
   double loop_cauchy_delta = 1.0;
+  bool enable_loop_outlier_rejection = true;
+  double loop_outlier_chi2_threshold = 30.0;
   int max_iterations = 50;
   bool verbose = false;
 };
@@ -96,7 +93,7 @@ struct Stage1Config {
   ChannelConfig channels;
   DualLidarConfig dual_lidar;
   GpsGateConfig gps_gate;
-  GpsZLevelingConfig gps_z_leveling;
+  ZLevelingConfig zleveling;
   OutputConfig output;
   LoopClosureConfig loop_closure;
 };

@@ -62,7 +62,7 @@ file-name order.
 - `channels.*` 是 IMU、GPS、heading、主 LiDAR topic。
 - `dual_lidar_fusion.enable=true` 时，Stage 1 会启用离线双雷达同步融合。
 - `dual_lidar.channels`、`dual_lidar.sync`、`dual_lidar.derived` 定义双雷达 topic、同步阈值和外参；副雷达会先变换到主雷达坐标系，再送入原 LIO 前端。
-- `gps_z_leveling.enable=true` 时，Stage 1 会用高质量 GPS anchor 的平均高程给最终 LIO 输出做一次全局 Z 常量校平；`es6` 默认关闭，`minibus` 默认开启。
+- `zleveling.enable=true` 时，Stage 1 会在第一轮 SE3 回环优化结果上做第二轮完整 SE3 图优化，并按 Lightning-LM `with_height` 思路给每个 keyframe 加固定高度先验；`es6` 默认关闭，`minibus` 默认开启。
 - 顶层模式下这些派生路径只在运行时注入，车辆 profile 不再手写 `stage1/stage2/stage3` 的产物路径。
 
 Build:
@@ -92,8 +92,8 @@ Primary artifacts:
 - `gps/gps_keyframe_raw_assoc.csv`
 - `utm_alignment.txt`
 - `diagnostics/loop_summary.csv`
-- `diagnostics/gps_z_leveling_summary.csv`
-- `diagnostics/gps_z_leveling_samples.csv`
+- `diagnostics/zleveling_summary.csv`
+- `diagnostics/zleveling_samples.csv`
 - `diagnostics/keyframe_diagnostics.csv`
 - `preview/lio_global_preview.pcd`
 - `preview/lio_opt_global_preview.pcd`
@@ -104,13 +104,14 @@ Stage 1 的原则是保留 LIO 前端结果和 GPS 原始可复现观测，不�
 位置。后续 Stage 2/Stage 3 可以基于这些表重新构建 lever arm、heading offset、
 GPS anchor 筛选、outage/support 一致性等优化模型。
 
-`gps_z_leveling` 是 Stage 1 的可选初步高程基准修正，不是 GPS 融合：
+`zleveling` 是 Stage 1 的可选第二轮 SE3 图优化，不使用 GPS 约束：
 
-- 它只筛选 `gps/gps_keyframe_assoc.csv` 里 `std_x/std_y/std_z` 有效且大于 0、`std_x/std_y <= max_gps_std_xy_m`、`std_z <= max_gps_std_z_m` 且满足 RTK fixed 要求的 anchor。
-- 计算 `z_offset_m = mean(gps_utm_z) - mean(lio_opt_z)`，然后把所有最终 `lio_opt` pose 整体加同一个 Z 平移。
-- 它不改变 LIO 前端原始 `lio_raw`，也不逐帧约束 Z，所以不会把真实道路起伏压平。
-- `diagnostics/gps_z_leveling_summary.csv` 记录是否启用、是否应用、样本数、均值和最终 `z_offset_m`。
-- `diagnostics/gps_z_leveling_samples.csv` 记录每个候选 GPS anchor 的筛选结果和 reject reason，便于你判断阈值是否过严或 GPS 质量是否不足。
+- 第一轮 Stage 1 回环仍然是完整 SE3 优化，用来闭合轨迹。
+- 回环边优化后会按 `loop_outlier_chi2_threshold` 做一次残差外点剔除，剔除后重新优化，避免少量错回环把局部结构拉出重影。
+- 第二轮以第一轮结果为初值，继续使用相邻 LIO SE3 边和第一轮检测到的回环边。
+- 第二轮额外给每个 keyframe 加 `EdgeHeightPrior`，measurement 固定为 `0m`，默认 `height_noise_m=0.05`，适合基本无坡度的道路场景压制 Z 卷曲漂移。
+- `diagnostics/zleveling_summary.csv` 记录是否启用、是否应用、高度先验边数量、最大绝对高度变化等信息。
+- `diagnostics/zleveling_samples.csv` 当前保留为空表，用于兼容诊断产物结构。
 
 `gps/gps_full.csv` 记录每一组配对成功的 GNSS BestPose + Heading：
 

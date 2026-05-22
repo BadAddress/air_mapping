@@ -15,14 +15,9 @@ stage1:
   save_preview_map: true
   preview_voxel_size: 0.2
 
-gps_z_leveling:
+zleveling:
   enable: true
-  max_gps_std_xy_m: 0.03
-  max_gps_std_z_m: 0.20
-  require_rtk_fixed: true
-  required_sol_type: 50
-  min_samples: 10
-  max_abs_z_offset_m: 20.0
+  height_noise_m: 0.05
 
 channels:
   imu: "/apollo/sensor/gnss/corrected_imu"
@@ -219,6 +214,8 @@ loop_closure:
   loop_info_scale: 1.0
   lio_huber_delta: 1.0
   loop_cauchy_delta: 1.0
+  enable_loop_outlier_rejection: true
+  loop_outlier_chi2_threshold: 30.0
   max_iterations: 50
   verbose: false
 

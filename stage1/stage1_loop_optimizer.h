@@ -31,9 +31,19 @@ struct Stage1LoopSummary {
   size_t accepted_loop_count = 0;
   size_t lio_edge_count = 0;
   size_t loop_edge_count = 0;
+  size_t loop_outlier_edge_count = 0;
   int optimizer_iterations = 0;
   double chi2_before = 0.0;
   double chi2_after = 0.0;
+  bool zleveling_enabled = false;
+  size_t zleveling_height_prior_edge_count = 0;
+  int zleveling_optimizer_iterations = 0;
+  double zleveling_chi2_before = 0.0;
+  double zleveling_chi2_after = 0.0;
+  double zleveling_max_abs_height_before_m = 0.0;
+  double zleveling_max_abs_height_after_m = 0.0;
+  double zleveling_mean_z_before = 0.0;
+  double zleveling_mean_z_after = 0.0;
 };
 
 class Stage1LoopOptimizer {

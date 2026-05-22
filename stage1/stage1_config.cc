@@ -300,34 +300,14 @@ bool LoadStage1Config(const std::string& config_path, Stage1Config* config) {
       }
     }
 
-    if (yaml["gps_z_leveling"]) {
-      const auto& leveling = yaml["gps_z_leveling"];
+    if (yaml["zleveling"]) {
+      const auto& leveling = yaml["zleveling"];
       if (leveling["enable"]) {
-        config->gps_z_leveling.enable = leveling["enable"].as<bool>();
+        config->zleveling.enable = leveling["enable"].as<bool>();
       }
-      if (leveling["max_gps_std_xy_m"]) {
-        config->gps_z_leveling.max_gps_std_xy_m =
-            leveling["max_gps_std_xy_m"].as<double>();
-      }
-      if (leveling["max_gps_std_z_m"]) {
-        config->gps_z_leveling.max_gps_std_z_m =
-            leveling["max_gps_std_z_m"].as<double>();
-      }
-      if (leveling["require_rtk_fixed"]) {
-        config->gps_z_leveling.require_rtk_fixed =
-            leveling["require_rtk_fixed"].as<bool>();
-      }
-      if (leveling["required_sol_type"]) {
-        config->gps_z_leveling.required_sol_type =
-            leveling["required_sol_type"].as<uint32_t>();
-      }
-      if (leveling["min_samples"]) {
-        config->gps_z_leveling.min_samples =
-            leveling["min_samples"].as<int>();
-      }
-      if (leveling["max_abs_z_offset_m"]) {
-        config->gps_z_leveling.max_abs_z_offset_m =
-            leveling["max_abs_z_offset_m"].as<double>();
+      if (leveling["height_noise_m"]) {
+        config->zleveling.height_noise_m =
+            leveling["height_noise_m"].as<double>();
       }
     }
 
@@ -434,6 +414,14 @@ bool LoadStage1Config(const std::string& config_path, Stage1Config* config) {
       if (loop["loop_cauchy_delta"]) {
         config_loop.loop_cauchy_delta = loop["loop_cauchy_delta"].as<double>();
       }
+      if (loop["enable_loop_outlier_rejection"]) {
+        config_loop.enable_loop_outlier_rejection =
+            loop["enable_loop_outlier_rejection"].as<bool>();
+      }
+      if (loop["loop_outlier_chi2_threshold"]) {
+        config_loop.loop_outlier_chi2_threshold =
+            loop["loop_outlier_chi2_threshold"].as<double>();
+      }
       if (loop["max_iterations"]) {
         config_loop.max_iterations = loop["max_iterations"].as<int>();
       }
@@ -460,12 +448,8 @@ bool LoadStage1Config(const std::string& config_path, Stage1Config* config) {
     AERROR << "Stage1 output directory is empty in " << config_path;
     return false;
   }
-  auto& z_leveling = config->gps_z_leveling;
-  z_leveling.max_gps_std_xy_m = std::max(z_leveling.max_gps_std_xy_m, 1e-4);
-  z_leveling.max_gps_std_z_m = std::max(z_leveling.max_gps_std_z_m, 1e-4);
-  z_leveling.min_samples = std::max(z_leveling.min_samples, 1);
-  z_leveling.max_abs_z_offset_m =
-      std::max(z_leveling.max_abs_z_offset_m, 0.0);
+  auto& z_leveling = config->zleveling;
+  z_leveling.height_noise_m = std::max(z_leveling.height_noise_m, 1e-4);
   auto& loop = config->loop_closure;
   loop.loop_kf_gap = std::max(loop.loop_kf_gap, 1);
   loop.min_keyframe_gap = std::max(loop.min_keyframe_gap, 1);
@@ -476,6 +460,8 @@ bool LoadStage1Config(const std::string& config_path, Stage1Config* config) {
   loop.max_candidates_per_query = std::max(loop.max_candidates_per_query, 1);
   loop.ndt_max_iterations = std::max(loop.ndt_max_iterations, 1);
   loop.icp_max_iterations = std::max(loop.icp_max_iterations, 1);
+  loop.loop_outlier_chi2_threshold =
+      std::max(loop.loop_outlier_chi2_threshold, 1e-6);
   loop.max_iterations = std::max(loop.max_iterations, 1);
   if (loop.ndt_resolutions.empty()) {
     loop.ndt_resolutions = {10.0, 5.0, 2.0, 1.0};

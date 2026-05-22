@@ -15,31 +15,27 @@ namespace apollo {
 namespace air_mapping {
 namespace stage1 {
 
-struct Stage1GpsZLevelingSample {
+struct Stage1ZLevelingSample {
   unsigned long keyframe_id = 0;
   double timestamp = 0.0;
   bool selected = false;
   std::string reject_reason;
-  double gps_z = 0.0;
   double lio_z_before = 0.0;
   double lio_z_after = 0.0;
-  double std_x = 0.0;
-  double std_y = 0.0;
-  double std_z = 0.0;
-  uint32_t sol_type = 0;
 };
 
-struct Stage1GpsZLevelingResult {
+struct Stage1ZLevelingResult {
   bool enabled = false;
   bool applied = false;
+  bool height_prior_applied = false;
   std::string status_message;
-  size_t candidate_count = 0;
-  size_t selected_count = 0;
-  double gps_mean_z = 0.0;
+  std::string height_prior_status_message;
+  size_t height_prior_edge_count = 0;
   double lio_mean_z_before = 0.0;
   double lio_mean_z_after = 0.0;
-  double z_offset_m = 0.0;
-  std::vector<Stage1GpsZLevelingSample> samples;
+  double max_abs_height_before_m = 0.0;
+  double max_abs_height_after_m = 0.0;
+  std::vector<Stage1ZLevelingSample> samples;
 };
 
 class Stage1ArtifactWriter {
@@ -49,7 +45,7 @@ class Stage1ArtifactWriter {
              const std::vector<lightning::GpsFullObservation>& gps_history,
              const std::vector<Stage1LoopConstraint>& loop_constraints,
              const Stage1LoopSummary& loop_summary,
-             const Stage1GpsZLevelingResult& z_leveling_result,
+             const Stage1ZLevelingResult& z_leveling_result,
              lightning::CloudPtr preview_map) const;
 };
 

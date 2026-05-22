@@ -38,8 +38,9 @@ class Stage1Runner {
   void ProcessLidarCloud(
       const std::shared_ptr<apollo::drivers::PointCloud>& cloud,
       bool is_primary);
-  Stage1GpsZLevelingResult ApplyGpsZLeveling(
-      const std::vector<lightning::Keyframe::Ptr>& keyframes) const;
+  Stage1ZLevelingResult ApplyZLeveling(
+      const std::vector<lightning::Keyframe::Ptr>& keyframes,
+      const Stage1LoopSummary& loop_summary) const;
 
   bool IsGpsInsValid() const;
   bool IsGpsSolutionValid(const apollo::drivers::gnss::GnssBestPose& msg) const;

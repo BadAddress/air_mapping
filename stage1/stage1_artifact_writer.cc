@@ -268,7 +268,7 @@ bool WriteMatrix6(const std::filesystem::path& path,
 void WriteUtmAlignment(
     const std::filesystem::path& path,
     const std::vector<lightning::Keyframe::Ptr>& keyframes,
-    const Stage1GpsZLevelingResult& z_leveling_result) {
+    const Stage1ZLevelingResult& z_leveling_result) {
   lightning::Vec3d offset_sum = lightning::Vec3d::Zero();
   int gps_count = 0;
   for (const auto& keyframe : keyframes) {
@@ -308,12 +308,12 @@ void WriteUtmAlignment(
           "into PCD.\n";
   file << "# p_utm = p_local + offset\n";
   file << "# gps_anchor_count: " << gps_count << "\n\n";
-  file << "# gps_z_leveling_applied: "
+  file << "# zleveling_applied: "
        << (z_leveling_result.applied ? "true" : "false") << "\n";
-  file << "# gps_z_leveling_selected_count: "
-       << z_leveling_result.selected_count << "\n";
-  file << "# gps_z_leveling_z_offset_m: "
-       << z_leveling_result.z_offset_m << "\n\n";
+  file << "# zleveling_height_prior_edge_count: "
+       << z_leveling_result.height_prior_edge_count << "\n";
+  file << "# zleveling_max_abs_height_after_m: "
+       << z_leveling_result.max_abs_height_after_m << "\n\n";
   file << std::fixed << std::setprecision(6);
   file << "offset_x: " << offset.x() << "\n";
   file << "offset_y: " << offset.y() << "\n";
@@ -329,7 +329,7 @@ bool Stage1ArtifactWriter::Write(
     const std::vector<lightning::GpsFullObservation>& gps_history,
     const std::vector<Stage1LoopConstraint>& loop_constraints,
     const Stage1LoopSummary& loop_summary,
-    const Stage1GpsZLevelingResult& z_leveling_result,
+    const Stage1ZLevelingResult& z_leveling_result,
     lightning::CloudPtr preview_map) const {
   const std::filesystem::path output_dir(config.output.directory);
   const std::filesystem::path keyframe_dir = output_dir / "keyframes";
@@ -396,34 +396,43 @@ bool Stage1ArtifactWriter::Write(
     manifest << "loop_closure_enabled: "
              << (loop_summary.enabled ? "true" : "false") << "\n";
     manifest << "loop_constraint_count: " << loop_constraints.size() << "\n";
-    manifest << "gps_z_leveling:\n";
+    manifest << "loop_outlier_edge_count: "
+             << loop_summary.loop_outlier_edge_count << "\n";
+    manifest << "zleveling:\n";
     manifest << "  enabled: "
              << (z_leveling_result.enabled ? "true" : "false") << "\n";
     manifest << "  applied: "
              << (z_leveling_result.applied ? "true" : "false") << "\n";
     manifest << "  status: " << YamlQuote(z_leveling_result.status_message)
              << "\n";
-    manifest << "  candidate_count: "
-             << z_leveling_result.candidate_count << "\n";
-    manifest << "  selected_count: " << z_leveling_result.selected_count
+    manifest << "  height_prior_applied: "
+             << (z_leveling_result.height_prior_applied ? "true" : "false")
              << "\n";
-    manifest << "  max_gps_std_xy_m: " << std::fixed << std::setprecision(9)
-             << config.gps_z_leveling.max_gps_std_xy_m << "\n";
-    manifest << "  max_gps_std_z_m: " << std::fixed << std::setprecision(9)
-             << config.gps_z_leveling.max_gps_std_z_m << "\n";
-    manifest << "  require_rtk_fixed: "
-             << (config.gps_z_leveling.require_rtk_fixed ? "true" : "false")
+    manifest << "  height_prior_status: "
+             << YamlQuote(z_leveling_result.height_prior_status_message)
              << "\n";
-    manifest << "  required_sol_type: "
-             << config.gps_z_leveling.required_sol_type << "\n";
-    manifest << "  min_samples: " << config.gps_z_leveling.min_samples << "\n";
-    manifest << "  gps_mean_z: " << std::fixed << std::setprecision(9)
-             << z_leveling_result.gps_mean_z << "\n";
+    manifest << "  height_prior_edge_count: "
+             << z_leveling_result.height_prior_edge_count << "\n";
+    manifest << "  optimizer_iterations: "
+             << loop_summary.zleveling_optimizer_iterations << "\n";
+    manifest << "  chi2_before: " << std::fixed << std::setprecision(9)
+             << loop_summary.zleveling_chi2_before << "\n";
+    manifest << "  chi2_after: " << std::fixed << std::setprecision(9)
+             << loop_summary.zleveling_chi2_after << "\n";
+    manifest << "  height_noise_m: " << std::fixed
+             << std::setprecision(9) << config.zleveling.height_noise_m
+             << "\n";
+    manifest << "  height_measurement_m: 0.000000000\n";
+    manifest << "  max_abs_height_before_m: " << std::fixed
+             << std::setprecision(9)
+             << z_leveling_result.max_abs_height_before_m << "\n";
+    manifest << "  max_abs_height_after_m: " << std::fixed
+             << std::setprecision(9)
+             << z_leveling_result.max_abs_height_after_m << "\n";
     manifest << "  lio_mean_z_before: "
              << z_leveling_result.lio_mean_z_before << "\n";
     manifest << "  lio_mean_z_after: "
              << z_leveling_result.lio_mean_z_after << "\n";
-    manifest << "  z_offset_m: " << z_leveling_result.z_offset_m << "\n";
     manifest << "coordinate_frame: local_lio_enu_aligned\n";
     manifest << "relative_edges: optimized_adjacent_pose_deltas\n";
     manifest
@@ -559,60 +568,62 @@ bool Stage1ArtifactWriter::Write(
     }
     summary << "enabled,keyframe_count,query_count,coarse_candidate_count,"
             << "accepted_loop_count,lio_edge_count,loop_edge_count,"
-            << "optimizer_iterations,chi2_before,chi2_after\n";
+            << "loop_outlier_edge_count,optimizer_iterations,chi2_before,"
+            << "chi2_after\n";
     summary << (loop_summary.enabled ? 1 : 0) << ","
             << loop_summary.keyframe_count << "," << loop_summary.query_count
             << "," << loop_summary.coarse_candidate_count << ","
             << loop_summary.accepted_loop_count << ","
             << loop_summary.lio_edge_count << ","
             << loop_summary.loop_edge_count << ","
+            << loop_summary.loop_outlier_edge_count << ","
             << loop_summary.optimizer_iterations << "," << std::fixed
             << std::setprecision(9) << loop_summary.chi2_before << ","
             << loop_summary.chi2_after << "\n";
   }
 
   {
-    std::ofstream summary(diagnostics_dir / "gps_z_leveling_summary.csv");
+    std::ofstream summary(diagnostics_dir / "zleveling_summary.csv");
     if (!summary.is_open()) {
-      AERROR << "Failed to write gps_z_leveling_summary.csv";
+      AERROR << "Failed to write zleveling_summary.csv";
       return false;
     }
-    summary << "enabled,applied,status_message,candidate_count,selected_count,"
-            << "max_gps_std_xy_m,max_gps_std_z_m,require_rtk_fixed,"
-            << "required_sol_type,min_samples,max_abs_z_offset_m,gps_mean_z,"
-            << "lio_mean_z_before,lio_mean_z_after,z_offset_m\n";
+    summary << "enabled,applied,status_message,height_prior_applied,"
+            << "height_prior_status,height_prior_edge_count,"
+            << "optimizer_iterations,chi2_before,chi2_after,"
+            << "height_noise_m,height_measurement_m,"
+            << "max_abs_height_before_m,max_abs_height_after_m,"
+            << "lio_mean_z_before,"
+            << "lio_mean_z_after\n";
     summary << (z_leveling_result.enabled ? 1 : 0) << ","
             << (z_leveling_result.applied ? 1 : 0) << ","
             << z_leveling_result.status_message << ","
-            << z_leveling_result.candidate_count << ","
-            << z_leveling_result.selected_count << "," << std::fixed
-            << std::setprecision(9)
-            << config.gps_z_leveling.max_gps_std_xy_m << ","
-            << config.gps_z_leveling.max_gps_std_z_m << ","
-            << (config.gps_z_leveling.require_rtk_fixed ? 1 : 0) << ","
-            << config.gps_z_leveling.required_sol_type << ","
-            << config.gps_z_leveling.min_samples << ","
-            << config.gps_z_leveling.max_abs_z_offset_m << ","
-            << z_leveling_result.gps_mean_z << ","
+            << (z_leveling_result.height_prior_applied ? 1 : 0) << ","
+            << z_leveling_result.height_prior_status_message << ","
+            << z_leveling_result.height_prior_edge_count << ","
+            << loop_summary.zleveling_optimizer_iterations << ","
+            << std::fixed << std::setprecision(9)
+            << loop_summary.zleveling_chi2_before << ","
+            << loop_summary.zleveling_chi2_after << ","
+            << std::setprecision(9) << config.zleveling.height_noise_m << ","
+            << 0.0 << "," << z_leveling_result.max_abs_height_before_m << ","
+            << z_leveling_result.max_abs_height_after_m << ","
             << z_leveling_result.lio_mean_z_before << ","
-            << z_leveling_result.lio_mean_z_after << ","
-            << z_leveling_result.z_offset_m << "\n";
+            << z_leveling_result.lio_mean_z_after << "\n";
 
-    std::ofstream samples(diagnostics_dir / "gps_z_leveling_samples.csv");
+    std::ofstream samples(diagnostics_dir / "zleveling_samples.csv");
     if (!samples.is_open()) {
-      AERROR << "Failed to write gps_z_leveling_samples.csv";
+      AERROR << "Failed to write zleveling_samples.csv";
       return false;
     }
-    samples << "keyframe_id,timestamp,selected,reject_reason,gps_z,"
-            << "lio_z_before,lio_z_after,std_x,std_y,std_z,sol_type\n";
+    samples << "keyframe_id,timestamp,selected,reject_reason,"
+            << "z_before,z_after\n";
     for (const auto& sample : z_leveling_result.samples) {
       samples << sample.keyframe_id << "," << std::fixed
               << std::setprecision(9) << sample.timestamp << ","
               << (sample.selected ? 1 : 0) << "," << sample.reject_reason
-              << "," << sample.gps_z << "," << sample.lio_z_before << ","
-              << sample.lio_z_after << "," << sample.std_x << ","
-              << sample.std_y << "," << sample.std_z << ","
-              << sample.sol_type << "\n";
+              << "," << sample.lio_z_before << ","
+              << sample.lio_z_after << "\n";
     }
   }
 

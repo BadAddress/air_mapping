@@ -13,6 +13,7 @@
 #include "modules/air_mapping/system/core/miao/core/robust_kernel/cauchy.h"
 #include "modules/air_mapping/system/core/miao/core/robust_kernel/huber.h"
 #include "modules/air_mapping/system/core/miao/core/types/edge_se3.h"
+#include "modules/air_mapping/system/core/miao/core/types/edge_se3_height_prior.h"
 #include "modules/air_mapping/system/core/miao/core/types/vertex_se3.h"
 #include "pcl/common/transforms.h"
 #include "pcl/filters/voxel_grid.h"
@@ -51,6 +52,33 @@ Mat6d BuildSe3Information(double translation_sigma_m, double rotation_sigma_rad)
   information.block<3, 3>(0, 0) *= 1.0 / translation_var;
   information.block<3, 3>(3, 3) *= 1.0 / rotation_var;
   return information;
+}
+
+double MaxAbsOptimizedHeight(const std::vector<Keyframe::Ptr>& keyframes) {
+  double max_abs_height = 0.0;
+  for (size_t i = 1; i < keyframes.size(); ++i) {
+    if (!keyframes[i]) {
+      continue;
+    }
+    const double z = keyframes[i]->GetOptPose().translation().z();
+    if (std::isfinite(z)) {
+      max_abs_height = std::max(max_abs_height, std::abs(z));
+    }
+  }
+  return max_abs_height;
+}
+
+double MeanOptimizedZ(const std::vector<Keyframe::Ptr>& keyframes) {
+  double sum = 0.0;
+  size_t count = 0;
+  for (const auto& keyframe : keyframes) {
+    if (!keyframe) {
+      continue;
+    }
+    sum += keyframe->GetOptPose().translation().z();
+    ++count;
+  }
+  return count > 0 ? sum / static_cast<double>(count) : 0.0;
 }
 
 Eigen::Matrix4d LidarExtrinsicMatrix(const Keyframe::Ptr& keyframe) {
@@ -425,11 +453,13 @@ void DetectLoopConstraints(const Stage1Config& config,
 bool RunPoseGraphOptimization(const Stage1Config& config,
                               const std::vector<Keyframe::Ptr>& keyframes,
                               const std::vector<Stage1LoopConstraint>& loops,
-                              Stage1LoopSummary* summary) {
+                              Stage1LoopSummary* summary,
+                              bool add_height_prior_edges,
+                              bool update_primary_summary) {
   if (summary == nullptr || keyframes.empty()) {
     return false;
   }
-  if (loops.empty()) {
+  if (loops.empty() && !add_height_prior_edges) {
     AINFO << "[Stage1Loop] No accepted loop constraints, keep LIO poses";
     return true;
   }
@@ -457,6 +487,11 @@ bool RunPoseGraphOptimization(const Stage1Config& config,
   }
 
   const auto& loop_config = config.loop_closure;
+  size_t lio_edge_count = 0;
+  size_t loop_edge_count = 0;
+  size_t height_prior_edge_count = 0;
+  size_t loop_outlier_edge_count = 0;
+  std::vector<std::shared_ptr<miao::EdgeSE3>> loop_edges;
   const Mat6d lio_information =
       BuildSe3Information(loop_config.lio_translation_sigma_m,
                           loop_config.lio_rotation_sigma_deg * M_PI / 180.0);
@@ -480,7 +515,7 @@ bool RunPoseGraphOptimization(const Stage1Config& config,
     huber->SetDelta(loop_config.lio_huber_delta);
     edge->SetRobustKernel(huber);
     optimizer->AddEdge(edge);
-    ++summary->lio_edge_count;
+    ++lio_edge_count;
   }
 
   const Mat6d loop_information =
@@ -504,29 +539,98 @@ bool RunPoseGraphOptimization(const Stage1Config& config,
     cauchy->SetDelta(loop_config.loop_cauchy_delta);
     edge->SetRobustKernel(cauchy);
     optimizer->AddEdge(edge);
-    ++summary->loop_edge_count;
+    loop_edges.push_back(edge);
+    ++loop_edge_count;
   }
 
-  if (summary->loop_edge_count == 0) {
-    AINFO << "[Stage1Loop] No loop edges were added to graph";
+  if (add_height_prior_edges) {
+    const double height_noise = std::max(config.zleveling.height_noise_m, 1e-4);
+    const double height_info = 1.0 / (height_noise * height_noise);
+    int height_prior_edge_offset = 200000;
+    for (size_t i = 0; i < keyframes.size(); ++i) {
+      if (!keyframes[i] || !vertices[i]) {
+        continue;
+      }
+      if (!std::isfinite(keyframes[i]->GetOptPose().translation().z())) {
+        continue;
+      }
+
+      auto edge = std::make_shared<miao::EdgeHeightPrior>();
+      edge->SetId(height_prior_edge_offset++);
+      edge->SetVertex(0, vertices[i]);
+      edge->SetMeasurement(0.0);
+      Eigen::Matrix<double, 1, 1> information;
+      information(0, 0) = height_info;
+      edge->SetInformation(information);
+      auto huber = std::make_shared<miao::RobustKernelHuber>();
+      huber->SetDelta(std::max(height_noise * 3.0, 1e-4));
+      edge->SetRobustKernel(huber);
+      optimizer->AddEdge(edge);
+      ++height_prior_edge_count;
+    }
+  }
+
+  if (loop_edge_count == 0 && height_prior_edge_count == 0) {
+    AINFO << "[Stage1Loop] No loop or height-prior edges were added to graph";
     return true;
   }
 
   optimizer->InitializeOptimization();
   optimizer->ComputeActiveErrors();
-  summary->chi2_before = optimizer->ActiveChi2();
-  if (!std::isfinite(summary->chi2_before)) {
+  const double chi2_before = optimizer->ActiveChi2();
+  if (!std::isfinite(chi2_before)) {
     AWARN << "[Stage1Loop] chi2_before is invalid, skip applying loop PGO";
     return true;
   }
 
-  summary->optimizer_iterations =
+  int optimizer_iterations =
       optimizer->Optimize(std::max(loop_config.max_iterations, 1));
   optimizer->ComputeActiveErrors();
-  summary->chi2_after = optimizer->ActiveChi2();
-  if (summary->optimizer_iterations <= 0 || !std::isfinite(summary->chi2_after)) {
+  double chi2_after = optimizer->ActiveChi2();
+  if (optimizer_iterations <= 0 || !std::isfinite(chi2_after)) {
     AWARN << "[Stage1Loop] optimizer failed, keep LIO poses";
     return true;
+  }
+
+  if (loop_config.enable_loop_outlier_rejection && !loop_edges.empty()) {
+    const double outlier_chi2 =
+        std::max(loop_config.loop_outlier_chi2_threshold, 1e-6);
+    for (const auto& edge : loop_edges) {
+      if (!edge) {
+        continue;
+      }
+      edge->ComputeError();
+      const double chi2 = edge->Chi2();
+      if (!std::isfinite(chi2) || chi2 > outlier_chi2) {
+        edge->SetLevel(1);
+        ++loop_outlier_edge_count;
+      } else {
+        edge->SetRobustKernel(nullptr);
+      }
+    }
+
+    if (loop_outlier_edge_count > 0 &&
+        loop_outlier_edge_count < loop_edges.size()) {
+      optimizer->InitializeOptimization();
+      optimizer->ComputeActiveErrors();
+      const int retry_iterations =
+          optimizer->Optimize(std::max(loop_config.max_iterations, 1));
+      optimizer->ComputeActiveErrors();
+      const double retry_chi2_after = optimizer->ActiveChi2();
+      if (retry_iterations > 0 && std::isfinite(retry_chi2_after)) {
+        optimizer_iterations += retry_iterations;
+        chi2_after = retry_chi2_after;
+      }
+    } else if (loop_outlier_edge_count == loop_edges.size()) {
+      AWARN << "[Stage1Loop] all loop edges were classified as outliers; "
+            << "keep robust first-pass result";
+      loop_outlier_edge_count = 0;
+      for (const auto& edge : loop_edges) {
+        if (edge) {
+          edge->SetLevel(0);
+        }
+      }
+    }
   }
 
   for (size_t i = 0; i < keyframes.size(); ++i) {
@@ -535,10 +639,27 @@ bool RunPoseGraphOptimization(const Stage1Config& config,
     }
   }
 
-  AINFO << "[Stage1Loop] PGO finished: loops=" << summary->loop_edge_count
-        << ", lio_edges=" << summary->lio_edge_count
-        << ", iterations=" << summary->optimizer_iterations
-        << ", chi2=" << summary->chi2_before << " -> " << summary->chi2_after;
+  if (update_primary_summary) {
+    summary->lio_edge_count = lio_edge_count;
+    summary->loop_edge_count = loop_edge_count;
+    summary->loop_outlier_edge_count = loop_outlier_edge_count;
+    summary->optimizer_iterations = optimizer_iterations;
+    summary->chi2_before = chi2_before;
+    summary->chi2_after = chi2_after;
+  } else {
+    summary->zleveling_height_prior_edge_count = height_prior_edge_count;
+    summary->zleveling_optimizer_iterations = optimizer_iterations;
+    summary->zleveling_chi2_before = chi2_before;
+    summary->zleveling_chi2_after = chi2_after;
+  }
+
+  AINFO << "[Stage1Loop] PGO finished: loops=" << loop_edge_count
+        << ", loop_outliers=" << loop_outlier_edge_count
+        << ", lio_edges=" << lio_edge_count
+        << ", height_prior_edges=" << height_prior_edge_count
+        << ", iterations=" << optimizer_iterations
+        << ", chi2=" << chi2_before << " -> " << chi2_after
+        << (add_height_prior_edges ? ", round=zleveling" : ", round=loop");
   return true;
 }
 
@@ -556,6 +677,7 @@ bool Stage1LoopOptimizer::Optimize(
   loop_constraints->clear();
   *summary = Stage1LoopSummary();
   summary->enabled = config.loop_closure.enable;
+  summary->zleveling_enabled = config.zleveling.enable;
   summary->keyframe_count = keyframes.size();
 
   for (const auto& keyframe : keyframes) {
@@ -577,7 +699,25 @@ bool Stage1LoopOptimizer::Optimize(
   AINFO << "[Stage1Loop] Detection summary: queries=" << summary->query_count
         << ", coarse_candidates=" << summary->coarse_candidate_count
         << ", accepted_loops=" << summary->accepted_loop_count;
-  return RunPoseGraphOptimization(config, keyframes, *loop_constraints, summary);
+  if (!RunPoseGraphOptimization(config, keyframes, *loop_constraints, summary,
+                                false, true)) {
+    return false;
+  }
+  if (!config.zleveling.enable) {
+    return true;
+  }
+
+  summary->zleveling_max_abs_height_before_m =
+      MaxAbsOptimizedHeight(keyframes);
+  summary->zleveling_mean_z_before = MeanOptimizedZ(keyframes);
+  if (!RunPoseGraphOptimization(config, keyframes, *loop_constraints, summary,
+                                true, false)) {
+    return false;
+  }
+  summary->zleveling_max_abs_height_after_m =
+      MaxAbsOptimizedHeight(keyframes);
+  summary->zleveling_mean_z_after = MeanOptimizedZ(keyframes);
+  return true;
 }
 
 }  // namespace stage1
