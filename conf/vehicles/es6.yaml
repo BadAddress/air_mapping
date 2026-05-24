@@ -215,10 +215,10 @@ lever_arm_calibration:
 graph_refine:
   lio_translation_sigma_m: 0.08
   lio_rotation_sigma_deg: 1.0
-  gps_weight_scale: 1.0
+  gps_weight_scale: 0.25
   min_gps_std_xy: 0.05
   min_gps_std_z: 0.05
-  max_gps_info_xy: 400.0
+  max_gps_info_xy: 100.0
   max_gps_info_z: 40.0
   use_gps_z: false
   max_fused_gps_std_xy: 0.03
@@ -226,8 +226,10 @@ graph_refine:
   gps_boundary_ramp_distance_m: 15.0
   first_pose_prior_translation_sigma_m: 5.0
   first_pose_prior_rotation_sigma_deg: 10.0
+  z_prior_sigma_m: 0.03
   lio_huber_delta: 1.0
-  gps_huber_delta: 2.0
+  gps_huber_delta: 0.5
+  z_prior_huber_delta: 0.09
   first_pose_prior_huber_delta: 1.0
   enable_outage_blocks: true
   outage_min_keyframes: 8

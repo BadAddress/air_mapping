@@ -20,8 +20,10 @@ struct GraphRefineConfig {
   double gps_boundary_ramp_distance_m = 15.0;
   double first_pose_prior_translation_sigma_m = 5.0;
   double first_pose_prior_rotation_sigma_deg = 10.0;
+  double z_prior_sigma_m = 0.05;
   double lio_huber_delta = 1.0;
   double gps_huber_delta = 2.0;
+  double z_prior_huber_delta = 0.15;
   double first_pose_prior_huber_delta = 1.0;
 
   bool enable_outage_blocks = true;

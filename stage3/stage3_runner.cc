@@ -17,6 +17,7 @@
 #include "modules/air_mapping/system/core/miao/core/opti_algo/algo_select.h"
 #include "modules/air_mapping/system/core/miao/core/robust_kernel/huber.h"
 #include "modules/air_mapping/system/core/miao/core/types/edge_gps_prior.h"
+#include "modules/air_mapping/system/core/miao/core/types/edge_se3_height_prior.h"
 #include "modules/air_mapping/system/core/miao/core/types/edge_se3_prior.h"
 #include "modules/air_mapping/system/core/miao/core/types/vertex_se3.h"
 
@@ -551,6 +552,17 @@ bool RunGraphRefinement(const Stage3Config& config, Stage2Dataset* dataset,
   *outage_blocks = BuildOutageBlocks(*dataset, config.graph, gps_supported);
   MatchOutageBlocksWithSupport(*dataset, config.graph, gps_supported,
                                outage_blocks);
+  const auto original_outage_block_count = outage_blocks->size();
+  outage_blocks->erase(
+      std::remove_if(outage_blocks->begin(), outage_blocks->end(),
+                     [](const Stage3OutageBlock& block) {
+                       return !block.icp_valid;
+                     }),
+      outage_blocks->end());
+  if (outage_blocks->size() != original_outage_block_count) {
+    AWARN << "[Stage3] Keep only outage blocks with valid ICP priors: "
+          << outage_blocks->size() << "/" << original_outage_block_count;
+  }
   summary->outage_block_count = outage_blocks->size();
   for (const auto& block : *outage_blocks) {
     if (block.icp_valid) {
@@ -720,6 +732,9 @@ bool RunGraphRefinement(const Stage3Config& config, Stage2Dataset* dataset,
   }
 
   int gps_edge_id = 1000000;
+  int z_prior_edge_id = 1500000;
+  const double z_prior_sigma = std::max(config.graph.z_prior_sigma_m, 1e-4);
+  const double z_prior_info = 1.0 / (z_prior_sigma * z_prior_sigma);
   for (auto& anchor : dataset->gps_anchors) {
     if (anchor.keyframe_index >= keyframe_to_block.size()) {
       continue;
@@ -762,6 +777,20 @@ bool RunGraphRefinement(const Stage3Config& config, Stage2Dataset* dataset,
     optimizer->AddEdge(edge);
     anchor.stage3_used = true;
     ++summary->gps_prior_count;
+
+    auto z_prior = std::make_shared<miao::EdgeHeightPrior>();
+    z_prior->SetId(z_prior_edge_id++);
+    z_prior->SetVertex(0, vertices[vertex_id]);
+    z_prior->SetMeasurement(dataset->records[anchor.keyframe_index]
+                                .stage2_pose.translation()
+                                .z());
+    Eigen::Matrix<double, 1, 1> z_information;
+    z_information(0, 0) = z_prior_info;
+    z_prior->SetInformation(z_information);
+    auto z_huber = std::make_shared<miao::RobustKernelHuber>();
+    z_huber->SetDelta(config.graph.z_prior_huber_delta);
+    z_prior->SetRobustKernel(z_huber);
+    optimizer->AddEdge(z_prior);
   }
 
   int outage_prior_edge_id = 2000000;

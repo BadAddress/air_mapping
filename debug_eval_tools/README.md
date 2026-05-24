@@ -76,3 +76,54 @@ The 3D comparison uses:
 
 The tool evaluates the existing artifacts only. It does not rerun Stage 2 and
 does not rewrite any mapping output.
+
+## Stage3 Graph Refinement Evaluation
+
+`eval_stage3_refine.py` reads the Stage 3 output directory and generates:
+
+- `stage3_eval_report.html`
+- `stage3_eval_report.txt`
+- `stage3_eval_stats.json`
+- `stage3_3d_refine.html`
+- trajectory, GPS-prior residual, pose-delta, and outage-block plots
+
+Default input is derived from `../conf/current_vehicle.yaml`:
+
+```bash
+data/<active_vehicle>/stage3_graph_refine
+```
+
+Run with defaults:
+
+```bash
+cd modules/air_mapping/debug_eval_tools
+./run_eval_stage3.sh
+```
+
+By default, results overwrite
+`data/debug/stage3_refine/<active_vehicle>/stage3`.
+
+Run against another Stage 3 output:
+
+```bash
+./run_eval_stage3.sh --stage3_dir /path/to/data/<vehicle>/stage3_graph_refine
+```
+
+Useful direct options:
+
+```bash
+python3 eval_stage3_refine.py \
+  --stage3_dir ../data/<vehicle>/stage3_graph_refine \
+  --output_dir ../data/debug/stage3_refine/<vehicle>/stage3
+```
+
+Key metrics:
+
+- GPS prior count, used count, and used ratio
+- GPS residual before Stage3 and after Stage3
+- Stage3 pose delta from Stage2, including translation and rotation
+- Outage block count, valid ICP prior count, block length, and ICP fitness
+- Interactive 3D Stage2-vs-Stage3 trajectory view
+
+The tool evaluates the existing artifacts only. It does not rerun Stage 3 and
+does not rewrite any mapping output.

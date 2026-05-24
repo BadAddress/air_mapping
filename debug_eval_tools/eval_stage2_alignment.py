@@ -419,9 +419,17 @@ def compute_lever_metrics(stage2_dir: Path) -> Dict[str, Any]:
     optimized_cost = to_float(summary, "weighted_cost_optimized")
     mean_initial = to_float(summary, "mean_residual_initial_xy_m")
     mean_optimized = to_float(summary, "mean_residual_optimized_xy_m")
+    initial_lever = parse_vec(summary, "initial")
+    optimized_lever = parse_vec(summary, "optimized")
+    correction = parse_vec(summary, "correction")
 
     return {
         "summary": dict(summary),
+        "initial_lever_arm": initial_lever,
+        "optimized_lever_arm": optimized_lever,
+        "correction": correction,
+        "correction_norm_m": float(np.linalg.norm(correction)) if np.all(np.isfinite(correction)) else math.nan,
+        "heading_bias_deg": to_float(summary, "heading_bias_deg"),
         "samples": samples,
         "candidate_count": len(samples),
         "selected_count": len(selected_samples),
@@ -1141,6 +1149,41 @@ def html_stat_table(title: str, metric: Dict[str, Any]) -> str:
     return f"<h3>{html.escape(title)}</h3><table>{''.join(rows)}</table>"
 
 
+def fmt_vec3(values: Any) -> str:
+    arr = np.asarray(values, dtype=float)
+    if arr.shape != (3,) or not np.all(np.isfinite(arr)):
+        return "n/a"
+    return f"[{arr[0]:.6f}, {arr[1]:.6f}, {arr[2]:.6f}]"
+
+
+def html_lever_arm_table(lever_metrics: Dict[str, Any]) -> str:
+    summary = lever_metrics.get("summary", {})
+    rows = [
+        ("Enabled", summary.get("enabled", "n/a")),
+        ("Success", summary.get("success", "n/a")),
+        ("Status", summary.get("status_message", "n/a")),
+        ("Orientation model", summary.get("orientation_model", "n/a")),
+        ("Initial lever arm [x, y, z] m", fmt_vec3(lever_metrics.get("initial_lever_arm"))),
+        ("Optimized lever arm [x, y, z] m", fmt_vec3(lever_metrics.get("optimized_lever_arm"))),
+        ("Correction [x, y, z] m", fmt_vec3(lever_metrics.get("correction"))),
+        ("Correction norm m", lever_metrics.get("correction_norm_m", math.nan)),
+        ("Heading bias deg", lever_metrics.get("heading_bias_deg", math.nan)),
+        ("Candidate samples", lever_metrics.get("candidate_count", 0)),
+        ("Selected samples", lever_metrics.get("selected_count", 0)),
+        ("Iterations", summary.get("iterations", "n/a")),
+    ]
+    html_rows = []
+    for label, value in rows:
+        if isinstance(value, float):
+            value_text = "n/a" if not np.isfinite(value) else f"{value:.6f}"
+        else:
+            value_text = str(value)
+        html_rows.append(
+            f"<tr><td>{html.escape(label)}</td><td>{html.escape(value_text)}</td></tr>"
+        )
+    return f"<h3>Lever-arm values</h3><table>{''.join(html_rows)}</table>"
+
+
 def write_html_report(
     output_dir: Path,
     stage2_dir: Path,
@@ -1160,6 +1203,10 @@ def write_html_report(
     reduction = alignment_metrics.get("mean_residual_reduction_pct")
     coverage_ratio = segment_metrics.get("covered_path_ratio", 0.0)
     lever_summary = lever_metrics.get("summary", {})
+    lever_initial = fmt_vec3(lever_metrics.get("initial_lever_arm"))
+    lever_optimized = fmt_vec3(lever_metrics.get("optimized_lever_arm"))
+    lever_correction = fmt_vec3(lever_metrics.get("correction"))
+    lever_correction_norm = lever_metrics.get("correction_norm_m", math.nan)
     image_html = "\n".join(
         f'<section><h2>{html.escape(Path(image).stem.replace("_", " ").title())}</h2>'
         f'<img src="{html.escape(image)}" alt="{html.escape(image)}"></section>'
@@ -1229,7 +1276,17 @@ a {{ color: #1f77b4; }}
   <div class="card"><h3>After Mean 3D</h3><div class="value">{after.get("mean", 0.0):.4f} m</div></div>
   <div class="card"><h3>Mean Reduction</h3><div class="value">{0.0 if reduction is None else reduction:.1f}%</div></div>
   <div class="card"><h3>Lever Status</h3><div class="value">{html.escape(lever_summary.get("status_message", "n/a"))}</div></div>
+  <div class="card"><h3>Lever Correction</h3><div class="value">{0.0 if not np.isfinite(lever_correction_norm) else lever_correction_norm:.4f} m</div></div>
 </div>
+<section>
+<h2>Lever-arm Calibration</h2>
+<p>Initial lever arm: <code>{html.escape(lever_initial)}</code></p>
+<p>Optimized lever arm: <code>{html.escape(lever_optimized)}</code></p>
+<p>Correction: <code>{html.escape(lever_correction)}</code></p>
+{html_lever_arm_table(lever_metrics)}
+{html_stat_table("Selected initial lever-arm residual XY (m)", lever_metrics["residual_initial_xy_m"])}
+{html_stat_table("Selected optimized lever-arm residual XY (m)", lever_metrics["residual_optimized_xy_m"])}
+</section>
 <section>
 <h2>Metric Tables</h2>
 {html_stat_table("Before 3D residual (m)", before)}

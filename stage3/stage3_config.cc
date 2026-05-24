@@ -140,11 +140,18 @@ bool LoadStage3Config(const std::string& config_path, Stage3Config* config) {
         config->graph.first_pose_prior_rotation_sigma_deg =
             graph["first_pose_prior_rotation_sigma_deg"].as<double>();
       }
+      if (graph["z_prior_sigma_m"]) {
+        config->graph.z_prior_sigma_m = graph["z_prior_sigma_m"].as<double>();
+      }
       if (graph["lio_huber_delta"]) {
         config->graph.lio_huber_delta = graph["lio_huber_delta"].as<double>();
       }
       if (graph["gps_huber_delta"]) {
         config->graph.gps_huber_delta = graph["gps_huber_delta"].as<double>();
+      }
+      if (graph["z_prior_huber_delta"]) {
+        config->graph.z_prior_huber_delta =
+            graph["z_prior_huber_delta"].as<double>();
       }
       if (graph["first_pose_prior_huber_delta"]) {
         config->graph.first_pose_prior_huber_delta =
@@ -251,8 +258,10 @@ bool LoadStage3Config(const std::string& config_path, Stage3Config* config) {
       std::max(graph.first_pose_prior_translation_sigma_m, 1e-3);
   graph.first_pose_prior_rotation_sigma_deg =
       std::max(graph.first_pose_prior_rotation_sigma_deg, 1e-3);
+  graph.z_prior_sigma_m = std::max(graph.z_prior_sigma_m, 1e-4);
   graph.lio_huber_delta = std::max(graph.lio_huber_delta, 1e-6);
   graph.gps_huber_delta = std::max(graph.gps_huber_delta, 1e-6);
+  graph.z_prior_huber_delta = std::max(graph.z_prior_huber_delta, 1e-4);
   graph.first_pose_prior_huber_delta =
       std::max(graph.first_pose_prior_huber_delta, 1e-6);
   graph.outage_min_keyframes = std::max(graph.outage_min_keyframes, 1);
