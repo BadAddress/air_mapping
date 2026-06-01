@@ -26,6 +26,7 @@ air_mapping:
 - `data/<vehicle>/stage1_lio`
 - `data/<vehicle>/stage2_graph_opt`
 - `data/<vehicle>/stage3_graph_refine`
+- `data/<vehicle>/stage4_map_export`
 - `data/debug/<analysis>/<vehicle>/<stage>`
 
 默认入口：
@@ -34,6 +35,7 @@ air_mapping:
 /opt/apollo/neo/bin/stage1_lio
 /opt/apollo/neo/bin/stage2_graph_opt
 /opt/apollo/neo/bin/stage3_graph_refine
+/opt/apollo/neo/bin/stage4_map_export
 ```
 
 ## Stage 1: Pure LIO + LiDAR-Only OPT
@@ -63,7 +65,8 @@ file-name order.
 - `dual_lidar_fusion.enable=true` 时，Stage 1 会启用离线双雷达同步融合。
 - `dual_lidar.channels`、`dual_lidar.sync`、`dual_lidar.derived` 定义双雷达 topic、同步阈值和外参；副雷达会先变换到主雷达坐标系，再送入原 LIO 前端。
 - `zleveling.enable=true` 时，Stage 1 会在第一轮 SE3 回环优化结果上做第二轮完整 SE3 图优化，并按 Lightning-LM `with_height` 思路给每个 keyframe 加固定高度先验；`es6` 默认关闭，`minibus` 默认开启。
-- 顶层模式下这些派生路径只在运行时注入，车辆 profile 不再手写 `stage1/stage2/stage3` 的产物路径。
+- 顶层模式下这些派生路径只在运行时注入，车辆 profile 不再手写 `stage1/stage2/stage3/stage4` 的产物路径。
+- `final_map.voxel_size_m` 是最终定位地图 `global.pcd` 的体素分辨率；当前 `es6=0.2m`，`minibus=0.15m`。
 
 Build:
 
@@ -228,7 +231,7 @@ Stage 2 输出的是一组可追踪、可回放的中间结果，而不是只输
 
 `diagnostics/lever_arm_calibration.csv` 记录本阶段杆臂标定的汇总结果：
 
-- `orientation_model` 标记本次标定使用的是 `lio_yaw_only` 还是 `full_lio`。
+- `orientation_model` 标记本次标定的杆臂方向模型；当前使用 `gnss_heading`。
 - `initial_*` 是 Stage 1 配置中的初始杆臂。
 - `correction_*` 是标定得到的修正量。
 - `optimized_*` 是最终用于重建 GPS anchor 的杆臂。
@@ -240,7 +243,7 @@ Stage 2 输出的是一组可追踪、可回放的中间结果，而不是只输
 
 - `selected` 表示该样本是否进入杆臂优化。
 - `reject_reason` 说明样本被排除的原因，例如 `std_xy_too_large` 或 `interp_gap_too_large`。
-- `sol_status`、`sol_type`、`satellite_tracked`、`heading_std_deg`、`gnss_lio_yaw_diff_deg` 用于解释样本质量，但当前有效样本门控不再使用 `satellite_tracked`。
+- `sol_status`、`sol_type`、`satellite_tracked`、`heading_std_deg`、`gnss_lio_yaw_diff_deg` 用于解释样本质量；当前有效样本门控不使用 `satellite_tracked`，也不使用预对齐前的 `gnss_lio_yaw_diff_deg`。
 - `pred_initial_*` 和 `pred_optimized_*` 是标定前后预测的天线位置。
 - `residual_initial_*` 和 `residual_optimized_*` 用于定位是 lever arm、heading 还是时间同步在拉坏结果。
 - `lio_raw_yaw_rad`、`lio_opt_yaw_rad`、`gnss_heading_rad`、`gnss_pitch_rad`、
@@ -248,7 +251,7 @@ Stage 2 输出的是一组可追踪、可回放的中间结果，而不是只输
 
 `diagnostics/alignment_anchors.csv` 记录最终进入全局对齐的 anchor：
 
-- `gps_utm_*` 是原始 GPS 天线位置。
+- `gps_utm_*` 是按 GNSS heading 和当前杆臂换算到 IMU 口径后的 GPS 位置。
 - `gps_smooth_utm_*` 是每个连续段内经过 Z 平滑后的 GPS 位置。
 - `weight` 是按 `std_dev` 计算的对齐权重。
 - `residual_before_m` / `residual_after_m` 用于查看全局对齐前后误差。
@@ -311,6 +314,33 @@ Primary artifacts:
 - `diagnostics/gps_priors.csv`
 - `diagnostics/outage_blocks.csv`
 - `preview/refined_global_preview.pcd`
+
+## Stage 4: Final Localization Map Export
+
+Stage 4 reads Stage 3 refined keyframes and the Stage 1 keyframe clouds, then
+exports the final localization map without changing any optimized poses. It
+uses `keyframes/keyframes_refined.csv` from Stage 3 as the pose source and keeps
+the map in the Stage 2/3 UTM-local frame.
+
+Stage 4 reads the current vehicle profile automatically. Run:
+
+```bash
+/opt/apollo/neo/bin/stage4_map_export
+```
+
+顶层配置模式下 Stage 4 输入固定为 `data/<vehicle>/stage3_graph_refine`，输出固定为
+`data/<vehicle>/stage4_map_export`。
+
+Primary artifacts:
+
+- `global.pcd`
+- `utm_alignment.txt`
+- `manifest.yaml`
+
+`final_map.voxel_size_m` 控制最终 `global.pcd` 的体素分辨率。Stage 4 先按该分辨率
+对单个 keyframe cloud 降采样，按 Stage 3 refined pose 合成全局点云后，再用同一个
+分辨率做一次全局体素降采样。`utm_alignment.txt` 采用 `offset_x/y/z` 格式，offset
+等于 Stage 2/3 继承的 `utm_origin`，因此 HDMap 可按 `p_map = p_utm - offset` 叠加。
 
 ## Viz: Static Mapping Visualizer
 

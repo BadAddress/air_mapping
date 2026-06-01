@@ -117,7 +117,7 @@ struct LeverArmCalibrationSampleDiagnostic {
 struct LeverArmCalibrationResult {
   bool enabled = false;
   bool success = false;
-  bool use_full_lio_orientation = false;
+  std::string orientation_model = "gnss_heading";
   bool estimate_heading_bias = false;
   size_t candidate_count = 0;
   size_t selected_count = 0;

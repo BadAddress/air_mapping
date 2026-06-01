@@ -16,7 +16,6 @@ struct LeverArmCalibrationConfig {
   uint32_t required_sol_status = 0;
   uint32_t required_sol_type = 50;
   double max_heading_std_deg = 1.0;
-  double max_lio_gnss_yaw_diff_deg = 2.0;
   int min_samples = 20;
   int max_iterations = 5;
   double prior_sigma_xy_m = 0.30;
@@ -27,9 +26,6 @@ struct LeverArmCalibrationConfig {
   double huber_delta_xy_m = 0.15;
   double max_correction_norm_m = 0.50;
   bool estimate_z = false;
-  // Keep the calibration model aligned with Stage 1's yaw-only anchor
-  // synthesis by default. Full roll/pitch can be enabled for experiments.
-  bool use_full_lio_orientation = false;
 };
 
 struct AlignmentConfig {

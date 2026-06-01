@@ -171,10 +171,6 @@ bool LoadStage2Config(const std::string& config_path, Stage2Config* config) {
         config->lever_arm_calibration.max_heading_std_deg =
             lever["max_heading_std_deg"].as<double>();
       }
-      if (lever["max_lio_gnss_yaw_diff_deg"]) {
-        config->lever_arm_calibration.max_lio_gnss_yaw_diff_deg =
-            lever["max_lio_gnss_yaw_diff_deg"].as<double>();
-      }
       if (lever["min_samples"]) {
         config->lever_arm_calibration.min_samples =
             lever["min_samples"].as<int>();
@@ -214,10 +210,6 @@ bool LoadStage2Config(const std::string& config_path, Stage2Config* config) {
       if (lever["estimate_z"]) {
         config->lever_arm_calibration.estimate_z =
             lever["estimate_z"].as<bool>();
-      }
-      if (lever["use_full_lio_orientation"]) {
-        config->lever_arm_calibration.use_full_lio_orientation =
-            lever["use_full_lio_orientation"].as<bool>();
       }
     }
 
@@ -261,8 +253,6 @@ bool LoadStage2Config(const std::string& config_path, Stage2Config* config) {
       std::max(config->lever_arm_calibration.max_interp_gap_s, 0.0);
   config->lever_arm_calibration.max_heading_std_deg =
       std::max(config->lever_arm_calibration.max_heading_std_deg, 0.0);
-  config->lever_arm_calibration.max_lio_gnss_yaw_diff_deg =
-      std::max(config->lever_arm_calibration.max_lio_gnss_yaw_diff_deg, 0.0);
   config->lever_arm_calibration.min_samples =
       std::max(config->lever_arm_calibration.min_samples, 3);
   config->lever_arm_calibration.max_iterations =

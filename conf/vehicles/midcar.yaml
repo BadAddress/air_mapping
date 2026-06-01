@@ -1,14 +1,14 @@
-# Minibus dual-LiDAR vehicle profile.
+# Midcar single-LiDAR vehicle profile.
 # Top-level paths are derived from conf/current_vehicle.yaml.
-# Dual-LiDAR extrinsics are copied from modules/air_localization dual_lidar_liu.
+# Runtime stage output paths are injected from the top-level config.
 
 profile:
-  vehicle_name: "minibus"
-  description: "Dual RS-LiDAR minibus profile from air_localization/dual_lidar_liu."
-  enable_dual_lidar: true
+  vehicle_name: "midcar"
+  description: "Single RS-Helios-32 midcar air_mapping profile."
+  enable_dual_lidar: false
 
 dataset:
-  records: "/media/x/DATA4TB/minibus2"
+  records: "/media/x/DATA4TB/20260327_underground"
 
 stage1:
   save_keyframe_clouds: true
@@ -16,102 +16,52 @@ stage1:
   preview_voxel_size: 0.2
 
 zleveling:
-  enable: true
+  enable: false
   height_noise_m: 0.05
 
 channels:
   imu: "/apollo/sensor/gnss/corrected_imu"
   imu_type: "corrected"
-  lidar: "/apollo/sensor/rslidar/right/PointCloud2"
+  lidar: "/apollo/sensor/rshelios32/PointCloud2"
   heading: "/apollo/sensor/gnss/heading"
   gnss_best_pose: "/apollo/sensor/gnss/best_pose"
   ins_stat: "/apollo/sensor/gnss/ins_stat"
   gps_odom: "/apollo/sensor/gnss/odometry"
 
 dual_lidar_fusion:
-  enable: true
-
-dual_lidar:
-  enable: true
-  primary_lidar: "right"
-  secondary_lidar: "left"
-  channels:
-    right: "/apollo/sensor/rslidar/right/PointCloud2"
-    left: "/apollo/sensor/rslidar/left/PointCloud2"
-  sync:
-    max_interval_ms: 50.0
-    max_cached_frames: 8
-    allow_primary_only: false
-  frames:
-    imu: "imu"
-    main_antenna: "main_antenna"
-    right_lidar: "rslidar_right"
-    left_lidar: "rslidar_left"
-  main_antenna_to_imu:
-    translation: [-0.483, -0.09, 1.745]
-    rotation: [1.0, 0.0, 0.0,
-               0.0, 1.0, 0.0,
-               0.0, 0.0, 1.0]
-  left_lidar_to_main_antenna:
-    translation: [-0.49038322693964354, 1.0412745724969847, -1.4538764685065075]
-    rotation_quaternion_xyzw: [0.015847903671522421,
-                               -0.022381145451080928,
-                               0.98551333307544142,
-                               0.1673660616972556]
-  right_lidar_to_main_antenna:
-    translation: [1.5693429309658791, 1.0029526402721527, -1.4905031791803145]
-    rotation_quaternion_xyzw: [0.037578016015602352,
-                               0.0026692918181338448,
-                               0.181675619363036,
-                               0.98263662506675276]
-  derived:
-    right_lidar_to_imu:
-      translation: [1.0863429310, 0.9129526403, 0.2544968208]
-      rotation: [0.9339736884, -0.3568416216, 0.0188999065,
-                 0.3572428483, 0.9311637241, -0.0728811792,
-                 0.0084081309, 0.0748209602, 0.9971615352]
-    left_lidar_to_imu:
-      translation: [-0.9733832269, 0.9512745725, 0.2911235315]
-      rotation: [-0.9434748907, -0.3305923591, 0.0237449524,
-                 0.3291735821, -0.9429753714, -0.0494186370,
-                 0.0387283291, -0.0388090321, 0.9984958566]
-    left_lidar_to_right_lidar:
-      translation: [-1.9097318384, 0.7734204609, -0.0051988323]
-      rotation: [-0.7632601826, -0.6459620840, 0.0129181900,
-                 0.6460832993, -0.7629990741, 0.0202183894,
-                 -0.0032037459, 0.0237781184, 0.9997121271]
+  enable: false
 
 fasterlio:
   lidar_type: 2
   scan_line: 32
   blind: 2.0
   time_scale: 0.001
-  kf_dist_th: 2.0
-  kf_angle_th: 12
-  skip_lidar_num: 1
-  point_filter_num: 1
-  max_iteration: 6
+  kf_dist_th: 3.0
+  kf_angle_th: 15
+  skip_lidar_num: 2
+  point_filter_num: 4
+  max_iteration: 5
   filter_size_scan: 0.16
   filter_size_map: 0.16
   ivox_grid_resolution: 0.16
   ivox_nearby_type: 18
-  esti_plane_threshold: 0.06
+  esti_plane_threshold: 0.08
   use_aa: false
   acc_cov: 0.1
   gyr_cov: 0.1
   b_acc_cov: 0.0001
   b_gyr_cov: 0.0001
   extrinsic_est_en: false
-  extrinsic_T: [1.0863429310, 0.9129526403, 0.2544968208]
-  extrinsic_R: [0.9339736884, -0.3568416216, 0.0188999065,
-                0.3572428483, 0.9311637241, -0.0728811792,
-                0.0084081309, 0.0748209602, 0.9971615352]
+  extrinsic_T: [0.0081942066, 0.3979862102, 0.9948932301]
+  extrinsic_R: [0.0275887859, -0.9996065535, -0.0050593656,
+                0.9995457082, 0.0275249623, 0.0122781800,
+                -0.0121340903, -0.0053958073, 0.9999118207]
   keep_first_imu_estimation: false
 
 system:
   with_ui: false
   with_2dui: false
-  with_g2p5: true
+  with_g2p5: false
   step_on_kf: false
   pub_tf: false
 
@@ -139,7 +89,7 @@ gps_fusion:
   enable: false
   enable_gps_position: true
   enable_gps_heading: false
-  enable_gps_height: false
+  enable_gps_height: true
   min_kf_distance_for_gps_attach: 5.0
   weight_lio_relative: 1.0
   weight_gps_position: 1.0
@@ -181,7 +131,7 @@ gps_fusion:
   heading_channel: "/apollo/sensor/gnss/heading"
   gps_channel: "/apollo/sensor/gnss/best_pose"
   heading_std_threshold: 1.0
-  enable_ins_gate: true
+  enable_ins_gate: false
   ins_gate_status: 2
   ins_gate_pos_type: 56
 
@@ -221,7 +171,7 @@ loop_closure:
 
 gps_heading_init:
   enable: true
-  gps_to_imu_translation: [-0.483, -0.09, 1.745]
+  gps_to_imu_translation: [0.0, -0.06, 0.7]
   antenna_yaw_offset: 89.17603
   imu_yaw_offset: 0.2197266
 
@@ -262,10 +212,10 @@ lever_arm_calibration:
 graph_refine:
   lio_translation_sigma_m: 0.08
   lio_rotation_sigma_deg: 1.0
-  gps_weight_scale: 1.0
+  gps_weight_scale: 0.25
   min_gps_std_xy: 0.05
   min_gps_std_z: 0.05
-  max_gps_info_xy: 400.0
+  max_gps_info_xy: 100.0
   max_gps_info_z: 40.0
   use_gps_z: false
   max_fused_gps_std_xy: 0.03
@@ -273,8 +223,10 @@ graph_refine:
   gps_boundary_ramp_distance_m: 15.0
   first_pose_prior_translation_sigma_m: 5.0
   first_pose_prior_rotation_sigma_deg: 10.0
+  z_prior_sigma_m: 0.03
   lio_huber_delta: 1.0
-  gps_huber_delta: 2.0
+  gps_huber_delta: 0.5
+  z_prior_huber_delta: 0.09
   first_pose_prior_huber_delta: 1.0
   enable_outage_blocks: true
   outage_min_keyframes: 8

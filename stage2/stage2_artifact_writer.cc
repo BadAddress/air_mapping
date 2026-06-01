@@ -138,9 +138,7 @@ bool Stage2ArtifactWriter::Write(
     manifest << "lever_arm_calibration_success: "
              << (lever_arm_result.success ? "true" : "false") << "\n";
     manifest << "lever_arm_orientation_model: "
-             << (lever_arm_result.use_full_lio_orientation ? "full_lio"
-                                                           : "lio_yaw_only")
-             << "\n";
+             << YamlQuote(lever_arm_result.orientation_model) << "\n";
     manifest << "lever_arm_heading_bias_enabled: "
              << (lever_arm_result.estimate_heading_bias ? "true" : "false")
              << "\n";
@@ -207,9 +205,7 @@ bool Stage2ArtifactWriter::Write(
         << "max_residual_optimized_xy_m\n";
     lever_summary << (lever_arm_result.enabled ? 1 : 0) << ","
                   << (lever_arm_result.success ? 1 : 0) << ","
-                  << (lever_arm_result.use_full_lio_orientation ? "full_lio"
-                                                                : "lio_yaw_only")
-                  << ","
+                  << lever_arm_result.orientation_model << ","
                   << lever_arm_result.status_message << ","
                   << lever_arm_result.candidate_count << ","
                   << lever_arm_result.selected_count << ","

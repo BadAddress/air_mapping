@@ -3,6 +3,8 @@ build/
 install/
 log/
 data/
+__pycache__/
+*.py[cod]
 viz/hdmap_local/*
 !viz/hdmap_local/.gitkeep
 

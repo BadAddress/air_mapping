@@ -199,7 +199,6 @@ lever_arm_calibration:
   required_sol_status: 0
   required_sol_type: 50
   max_heading_std_deg: 1.0
-  max_lio_gnss_yaw_diff_deg: 2.0
   min_samples: 20
   max_iterations: 5
   prior_sigma_xy_m: 0.30
@@ -210,7 +209,6 @@ lever_arm_calibration:
   huber_delta_xy_m: 0.15
   max_correction_norm_m: 0.50
   estimate_z: false
-  use_full_lio_orientation: false
 
 graph_refine:
   lio_translation_sigma_m: 0.08
@@ -247,6 +245,17 @@ graph_refine:
   outage_icp_huber_delta: 1.0
   max_iterations: 80
   verbose: false
+
+final_map:
+  voxel_size_m: 0.2
+  keyframe_step: 1
+  remove_invalid_points: true
+  enable_height_crop: true
+  min_z_m: -30.0
+  max_z_m: 30.0
+  enable_statistical_outlier_removal: true
+  sor_mean_k: 20
+  sor_stddev_mul_thresh: 1.0
 
 output:
   save_preview_map: true

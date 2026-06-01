@@ -49,9 +49,9 @@ class AirMappingVizApp {
             const savedState = this.loadUiState();
             const initialState = {
                 mode: savedState?.mode ?? 'local',
-                pcdPath: savedState?.pcdPath || defaults.local_pcd || '',
+                pcdPath: this.resolveDefaultablePath(savedState?.pcdPath, defaults.local_pcd),
                 hdmapPath: savedState?.hdmapPath || defaults.hdmap || '',
-                alignmentPath: savedState?.alignmentPath || defaults.utm_alignment || '',
+                alignmentPath: this.resolveDefaultablePath(savedState?.alignmentPath, defaults.utm_alignment),
                 colorMode: savedState?.colorMode || 'intensity'
             };
             this.elements.pcdPath.value = initialState.pcdPath;
@@ -181,7 +181,7 @@ class AirMappingVizApp {
                 mode: state.mode === 'global' ? 'global' : 'local',
                 pcdPath: this.normalizeSavedPcdPath(state.pcdPath),
                 hdmapPath: this.normalizeSavedHdmapPath(state.hdmapPath),
-                alignmentPath: typeof state.alignmentPath === 'string' ? state.alignmentPath : '',
+                alignmentPath: this.normalizeSavedAlignmentPath(state.alignmentPath),
                 colorMode: state.colorMode === 'z' ? 'z' : 'intensity'
             };
         } catch (error) {
@@ -201,9 +201,30 @@ class AirMappingVizApp {
         if (typeof path !== 'string') {
             return '';
         }
-        return path.includes('/keyframes/') || !path.includes('/preview/')
+        if (
+            path.endsWith('/stage2_graph_opt/preview/optimized_global_preview.pcd') ||
+            path.endsWith('/stage3_graph_refine/preview/refined_global_preview.pcd')
+        ) {
+            return '';
+        }
+        const isPreviewPcd = path.includes('/preview/');
+        const isStage4GlobalPcd = path.endsWith('/stage4_map_export/global.pcd');
+        return path.includes('/keyframes/') || (!isPreviewPcd && !isStage4GlobalPcd)
             ? ''
             : path;
+    }
+
+    normalizeSavedAlignmentPath(path) {
+        if (typeof path !== 'string') {
+            return '';
+        }
+        return path.includes('/stage2_graph_opt/alignment/utm_origin.txt')
+            ? ''
+            : path;
+    }
+
+    resolveDefaultablePath(savedPath, defaultPath) {
+        return savedPath || defaultPath || '';
     }
 
     persistUiState() {

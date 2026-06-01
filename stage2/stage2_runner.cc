@@ -64,10 +64,6 @@ double GnssLioYawDiffDeg(const Stage1GpsRawKeyframeObservation& observation) {
          kRadToDeg;
 }
 
-double RotationYawRad(const lightning::Mat3d& rotation) {
-  return std::atan2(rotation(1, 0), rotation(0, 0));
-}
-
 bool IsAcceptedFixedSolution(const Stage1GpsRawKeyframeObservation& observation,
                              const LeverArmCalibrationConfig& config) {
   if (!config.require_rtk_fixed) {
@@ -111,13 +107,6 @@ bool IsHighPrecisionRawGps(const Stage1GpsRawKeyframeObservation& observation,
     }
     return false;
   }
-  if (config.max_lio_gnss_yaw_diff_deg > 0.0 &&
-      GnssLioYawDiffDeg(observation) > config.max_lio_gnss_yaw_diff_deg) {
-    if (reject_reason) {
-      *reject_reason = "gnss_lio_yaw_diff_too_large";
-    }
-    return false;
-  }
   if (!observation.std_dev.allFinite()) {
     if (reject_reason) {
       *reject_reason = "invalid_std";
@@ -158,21 +147,20 @@ double ComputeAnchorWeight(const lightning::Vec3d& std_dev,
   return 1.0 / std::max(variance, 1e-6);
 }
 
+lightning::Mat3d GnssHeadingOrientation(
+    const Stage1GpsRawKeyframeObservation& observation,
+    double heading_bias_rad = 0.0) {
+  return lightning::SO3::rotZ(observation.gnss_heading_rad + heading_bias_rad)
+      .matrix();
+}
+
 lightning::Mat3d LeverArmOrientation(
     const lightning::SE3& lio_to_utm_local,
     const Stage1GpsRawKeyframeObservation& observation,
     const LeverArmCalibrationConfig& config, double heading_bias_rad = 0.0) {
-  if (config.use_full_lio_orientation) {
-    return lightning::SO3::rotZ(heading_bias_rad).matrix() *
-           lio_to_utm_local.rotationMatrix() *
-           observation.lio_opt_pose.rotationMatrix();
-  }
-  const auto rotation = observation.lio_opt_pose.rotationMatrix();
-  const double lio_yaw = RotationYawRad(rotation);
-  const double alignment_yaw =
-      RotationYawRad(lio_to_utm_local.rotationMatrix());
-  return lightning::SO3::rotZ(alignment_yaw + lio_yaw + heading_bias_rad)
-      .matrix();
+  (void)lio_to_utm_local;
+  (void)config;
+  return GnssHeadingOrientation(observation, heading_bias_rad);
 }
 
 lightning::Vec3d PredictAntennaUtm(
@@ -945,7 +933,7 @@ bool RunLeverArmCalibration(const Stage1Dataset& dataset,
   const auto& lever_config = config.lever_arm_calibration;
   *result = LeverArmCalibrationResult();
   result->enabled = lever_config.enable;
-  result->use_full_lio_orientation = lever_config.use_full_lio_orientation;
+  result->orientation_model = "gnss_heading";
   result->estimate_heading_bias = lever_config.estimate_heading_bias;
   *calibrated_alignment = initial_alignment;
 

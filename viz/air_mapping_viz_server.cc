@@ -279,19 +279,10 @@ std::string VehicleDataRoot(const std::string& active_vehicle) {
   return (std::filesystem::path("data") / active_vehicle).string();
 }
 
-std::string StagePreviewPcd(const std::string& vehicle_data_root,
+std::string StageOutputFile(const std::string& vehicle_data_root,
                             const std::string& stage,
                             const std::string& filename) {
-  return (std::filesystem::path(vehicle_data_root) / stage / "preview" /
-          filename)
-      .string();
-}
-
-std::string StageAlignmentFile(const std::string& vehicle_data_root,
-                               const std::string& stage,
-                               const std::string& filename) {
-  return (std::filesystem::path(vehicle_data_root) / stage / "alignment" /
-          filename)
+  return (std::filesystem::path(vehicle_data_root) / stage / filename)
       .string();
 }
 
@@ -384,15 +375,15 @@ bool AirMappingVizServer::LoadConfig(const std::string& config_path) {
       options_.debug_root = run_config.debug_root;
       options_.vehicle_data_root = VehicleDataRoot(options_.active_vehicle);
       options_.default_local_pcd =
-          StagePreviewPcd(options_.vehicle_data_root, "stage3_graph_refine",
-                          "refined_global_preview.pcd");
+          StageOutputFile(options_.vehicle_data_root, "stage4_map_export",
+                          "global.pcd");
       options_.default_global_pcd =
-          StagePreviewPcd(options_.vehicle_data_root, "stage2_graph_opt",
-                          "optimized_global_preview.pcd");
+          StageOutputFile(options_.vehicle_data_root, "stage4_map_export",
+                          "global.pcd");
       options_.default_hdmap = ResolveDefaultHdmapRoot();
       options_.default_utm_alignment =
-          StageAlignmentFile(options_.vehicle_data_root, "stage2_graph_opt",
-                             "utm_origin.txt");
+          StageOutputFile(options_.vehicle_data_root, "stage4_map_export",
+                          "utm_alignment.txt");
     }
     const Options default_options;
     if (yaml["server"]) {
@@ -580,22 +571,22 @@ AirMappingVizServer::Json AirMappingVizServer::HandleDefaults() const {
   defaults["hdmap_root"] = ResolveDefaultHdmapRoot();
   defaults["alignment_root"] = vehicle_data_root;
   defaults["local_pcd"] = options_.default_local_pcd.empty()
-                               ? StagePreviewPcd(vehicle_data_root,
-                                                 "stage3_graph_refine",
-                                                 "refined_global_preview.pcd")
+                               ? StageOutputFile(vehicle_data_root,
+                                                 "stage4_map_export",
+                                                 "global.pcd")
                                : options_.default_local_pcd;
   defaults["global_pcd"] = options_.default_global_pcd.empty()
-                                ? StagePreviewPcd(vehicle_data_root,
-                                                  "stage2_graph_opt",
-                                                  "optimized_global_preview.pcd")
+                                ? StageOutputFile(vehicle_data_root,
+                                                  "stage4_map_export",
+                                                  "global.pcd")
                                 : options_.default_global_pcd;
   defaults["hdmap"] = options_.default_hdmap.empty()
                           ? "viz/hdmap_local"
                           : options_.default_hdmap;
   defaults["utm_alignment"] = options_.default_utm_alignment.empty()
-                                  ? StageAlignmentFile(vehicle_data_root,
-                                                       "stage2_graph_opt",
-                                                       "utm_origin.txt")
+                                  ? StageOutputFile(vehicle_data_root,
+                                                    "stage4_map_export",
+                                                    "utm_alignment.txt")
                                   : options_.default_utm_alignment;
   return defaults;
 }
@@ -633,7 +624,8 @@ AirMappingVizServer::Json AirMappingVizServer::HandleListFiles(
     bool accept = false;
     if (type == "pcd") {
       accept = HasExtension(path, ".pcd") &&
-               path.parent_path().filename() == "preview";
+               (path.parent_path().filename() == "preview" ||
+                path.filename() == "global.pcd");
     } else if (type == "hdmap") {
       accept = path.filename() == "base_map.txt" ||
                path.filename() == "sim_map.txt" ||
