@@ -32,6 +32,14 @@ struct GpsGateConfig {
   uint32_t ins_gate_pos_type = 56;
   double heading_std_threshold = 1.0;
   bool enable_gps_heading_init = true;
+  // Explicit per-dataset escape hatch for known-bad driver quality fields.
+  // Geometry/timestamps must still be finite and present.
+  bool trust_all_quality_fields = false;
+  // Conversion from raw Heading.heading (degrees) to the ENU yaw of body X:
+  // yaw_body_x_deg = body_x_yaw_sign * raw_heading_deg +
+  //                  body_x_yaw_offset_deg.
+  double body_x_yaw_sign = 1.0;
+  double body_x_yaw_offset_deg = -87.5171;
 };
 
 struct OutputConfig {
@@ -88,6 +96,9 @@ struct Stage1Config {
   std::string debug_root = "/apollo_workspace/modules/air_mapping/data/debug";
   std::vector<std::string> dataset_sources;
   std::vector<std::string> records;
+  // Zero disables clipping.  A positive value is measured from the first
+  // record header begin_time and applies across record-file boundaries.
+  double max_duration_sec = 0.0;
   std::string map_name = "stage1_lio";
   std::string algorithm_config_path;
   ChannelConfig channels;

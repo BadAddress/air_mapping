@@ -1,4 +1,5 @@
 #include "cyber/common/log.h"
+#include <cmath>
 #include <iostream>
 #include <pcl/common/transforms.h>
 #include <pcl/io/pcd_io.h> // ADDED
@@ -85,6 +86,19 @@ bool LaserMapping::LoadParamsFromYAML(const std::string &yaml_file) {
 
         skip_lidar_num_ = yaml["fasterlio"]["skip_lidar_num"].as<int>();
         enable_skip_lidar_ = skip_lidar_num_ > 0;
+
+        // This gate applies only to the scan-to-map LIO work set after IMU
+        // undistortion.  Keyframes continue to store the complete undistorted
+        // cloud, so map export does not inherit the registration range limit.
+        if (yaml["lio_registration_filter"]) {
+            const auto filter = yaml["lio_registration_filter"];
+            lio_registration_range_filter_enable_ =
+                filter["enable"].as<bool>(false);
+            lio_registration_min_range_m_ =
+                filter["min_range_m"].as<double>(0.0);
+            lio_registration_max_range_m_ =
+                filter["max_range_m"].as<double>(0.0);
+        }
         
         // Load GPS heading initialization parameters
         if (yaml["gps_heading_init"]) {
@@ -101,6 +115,25 @@ bool LaserMapping::LoadParamsFromYAML(const std::string &yaml_file) {
     } catch (...) {
         AERROR << "bad conversion";
         return false;
+    }
+
+    if (lio_registration_range_filter_enable_) {
+        if (!std::isfinite(lio_registration_min_range_m_) ||
+            !std::isfinite(lio_registration_max_range_m_) ||
+            lio_registration_min_range_m_ < 0.0 ||
+            lio_registration_max_range_m_ <=
+                lio_registration_min_range_m_) {
+            AERROR << "Invalid lio_registration_filter range: min="
+                   << lio_registration_min_range_m_ << ", max="
+                   << lio_registration_max_range_m_;
+            return false;
+        }
+        AINFO << "LIO registration range filter enabled: ["
+              << lio_registration_min_range_m_ << ", "
+              << lio_registration_max_range_m_
+              << "] m; keyframe clouds remain full range";
+    } else {
+        AINFO << "LIO registration range filter disabled";
     }
 
     AINFO << "lidar_type " << lidar_type;
@@ -232,14 +265,23 @@ bool LaserMapping::Run() {
         AINFO << "[GPS_HEADING_INIT] Waiting for GPS heading initialization (skipping scan processing)";
         return false;
     }
+
+    const CloudPtr lio_registration_cloud = BuildLioRegistrationCloud();
+    if (!lio_registration_cloud || lio_registration_cloud->empty()) {
+        AWARN << "No finite point in the configured LIO registration range, "
+              << "skip this scan";
+        return false;
+    }
     
     if (flg_first_scan_) {
-        AINFO << "first scan pts: " << scan_undistort_->size();
+        AINFO << "first scan pts: full=" << scan_undistort_->size()
+              << ", lio_range=" << lio_registration_cloud->size();
 
         state_point_ = kf_.GetX();
-        scan_down_world_->resize(scan_undistort_->size());
-        for (int i = 0; i < scan_undistort_->size(); i++) {
-            PointBodyToWorld(scan_undistort_->points[i], scan_down_world_->points[i]);
+        scan_down_world_->resize(lio_registration_cloud->size());
+        for (size_t i = 0; i < lio_registration_cloud->size(); ++i) {
+            PointBodyToWorld(lio_registration_cloud->points[i],
+                             scan_down_world_->points[i]);
         }
         
         // 仅在建图模式下添加第一帧点云到地图
@@ -284,7 +326,7 @@ bool LaserMapping::Run() {
     flg_EKF_inited_ = (measures_.lidar_begin_time_ - first_lidar_time_) >= fasterlio::INIT_TIME;
 
     /// downsample
-    voxel_scan_.setInputCloud(scan_undistort_);
+    voxel_scan_.setInputCloud(lio_registration_cloud);
     voxel_scan_.filter(*scan_down_body_);
 
     int cur_pts = scan_down_body_->size();
@@ -327,7 +369,9 @@ bool LaserMapping::Run() {
     // update local map
     Timer::Evaluate([&, this]() { MapIncremental(); }, "    Incremental Mapping");
 
-    AINFO << "[ mapping ]: In num: " << scan_undistort_->points.size() << " down " << cur_pts
+    AINFO << "[ mapping ]: full=" << scan_undistort_->points.size()
+              << " lio_range=" << lio_registration_cloud->points.size()
+              << " down=" << cur_pts
               << " Map grid num: " << ivox_->NumValidGrids() << " effect num : " << effect_feat_num_;
 
     /// keyframes
@@ -362,6 +406,40 @@ bool LaserMapping::Run() {
     */
 
     return true;
+}
+
+CloudPtr LaserMapping::BuildLioRegistrationCloud() {
+    if (!lio_registration_range_filter_enable_) {
+        return scan_undistort_;
+    }
+
+    scan_registration_->clear();
+    scan_registration_->points.reserve(scan_undistort_->size());
+    const double min_range_sq = lio_registration_min_range_m_ *
+                                lio_registration_min_range_m_;
+    const double max_range_sq = lio_registration_max_range_m_ *
+                                lio_registration_max_range_m_;
+    for (const auto& point : scan_undistort_->points) {
+        if (!std::isfinite(point.x) || !std::isfinite(point.y) ||
+            !std::isfinite(point.z)) {
+            continue;
+        }
+        const double range_sq = static_cast<double>(point.x) * point.x +
+                                static_cast<double>(point.y) * point.y +
+                                static_cast<double>(point.z) * point.z;
+        if (range_sq < min_range_sq || range_sq > max_range_sq) {
+            continue;
+        }
+        scan_registration_->points.push_back(point);
+    }
+    scan_registration_->header = scan_undistort_->header;
+    scan_registration_->sensor_origin_ = scan_undistort_->sensor_origin_;
+    scan_registration_->sensor_orientation_ =
+        scan_undistort_->sensor_orientation_;
+    scan_registration_->width = scan_registration_->size();
+    scan_registration_->height = 1;
+    scan_registration_->is_dense = true;
+    return scan_registration_;
 }
 
 void LaserMapping::MakeKF() {

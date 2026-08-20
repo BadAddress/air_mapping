@@ -50,6 +50,7 @@ class LaserMapping {
     LaserMapping(Options options = Options());
     ~LaserMapping() {
         scan_down_body_ = nullptr;
+        scan_registration_ = nullptr;
         scan_undistort_ = nullptr;
         scan_down_world_ = nullptr;
         AINFO << "laser mapping deconstruct";
@@ -188,6 +189,10 @@ class LaserMapping {
 
     void MapIncremental();
 
+    /// Build the finite, range-gated working cloud used by scan-to-map LIO.
+    /// scan_undistort_ remains untouched and is still saved in keyframes.
+    CloudPtr BuildLioRegistrationCloud();
+
     bool LoadParamsFromYAML(const std::string &yaml);
 
     /// 创建关键帧
@@ -241,6 +246,7 @@ class LaserMapping {
 
     /// point clouds data
     CloudPtr scan_undistort_{new PointCloudType()};   // scan after undistortion
+    CloudPtr scan_registration_{new PointCloudType()};  // LIO-only work set
     CloudPtr scan_down_body_{new PointCloudType()};   // downsampled scan in body
     CloudPtr scan_down_world_{new PointCloudType()};  // downsampled scan in world
     std::vector<PointVector> nearest_points_;         // nearest points of current scan
@@ -261,6 +267,9 @@ class LaserMapping {
 
     /// options
     bool keep_first_imu_estimation_ = false;    // 在没有建立地图前，是否要使用前几帧的IMU状态
+    bool lio_registration_range_filter_enable_ = false;
+    double lio_registration_min_range_m_ = 0.0;
+    double lio_registration_max_range_m_ = 0.0;
     double timediff_lidar_wrt_imu_ = 0.0;
     double last_timestamp_lidar_ = 0;
     double lidar_end_time_ = 0;

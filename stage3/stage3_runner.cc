@@ -118,6 +118,10 @@ double PathLength(const Stage2Dataset& dataset, size_t start_index,
 
 bool IsHighPrecisionGpsAnchor(const Stage2GpsAnchor& anchor,
                               const GraphRefineConfig& config) {
+  if (config.trust_all_quality_fields) {
+    return anchor.gps_smooth_utm_position.allFinite() &&
+           anchor.gps_std_dev.allFinite();
+  }
   if (config.max_fused_gps_std_xy <= 1e-6) {
     return true;
   }

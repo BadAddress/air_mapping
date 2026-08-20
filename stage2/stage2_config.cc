@@ -143,6 +143,10 @@ bool LoadStage2Config(const std::string& config_path, Stage2Config* config) {
       if (lever["enable"]) {
         config->lever_arm_calibration.enable = lever["enable"].as<bool>();
       }
+      if (lever["trust_all_quality_fields"]) {
+        config->lever_arm_calibration.trust_all_quality_fields =
+            lever["trust_all_quality_fields"].as<bool>();
+      }
       if (lever["max_gps_std_xy_m"]) {
         config->lever_arm_calibration.max_gps_std_xy_m =
             lever["max_gps_std_xy_m"].as<double>();
@@ -211,6 +215,12 @@ bool LoadStage2Config(const std::string& config_path, Stage2Config* config) {
         config->lever_arm_calibration.estimate_z =
             lever["estimate_z"].as<bool>();
       }
+    }
+
+    if (yaml["gps_fusion"] &&
+        yaml["gps_fusion"]["trust_all_quality_fields"]) {
+      config->lever_arm_calibration.trust_all_quality_fields =
+          yaml["gps_fusion"]["trust_all_quality_fields"].as<bool>();
     }
 
     if (yaml["output"]) {

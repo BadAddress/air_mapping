@@ -1,11 +1,8 @@
-# Top-level air_mapping entry.
-# All stage binaries, viz, and debug tools read this file by default.
-# Switch vehicles by changing only active_vehicle and active_vehicle_config.
+# Explicit task entry for the fr_max Helios-32 near-range LIO profile.
+# It writes data/fr_max and never overwrites baseline slam_bin_top artifacts.
 
 air_mapping:
   module_root: "/apollo_workspace/modules/air_mapping"
-  # active_vehicle: "es6"
-  # active_vehicle_config: "conf/vehicles/es6.yaml"
   active_vehicle: "fr_max"
   active_vehicle_config: "conf/vehicles/fr_max.yaml"
   data_root: "/apollo_workspace/modules/air_mapping/data"

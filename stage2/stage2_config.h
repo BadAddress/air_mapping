@@ -9,6 +9,9 @@ namespace stage2 {
 
 struct LeverArmCalibrationConfig {
   bool enable = true;
+  // Ignore driver-reported solution status/type and uncertainty thresholds.
+  // Finite geometry and interpolation-gap checks remain mandatory.
+  bool trust_all_quality_fields = false;
   double max_gps_std_xy_m = 0.03;
   double max_interp_gap_s = 0.75;
   bool require_stage1_gps_anchor = false;

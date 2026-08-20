@@ -94,6 +94,10 @@ bool LoadStage3Config(const std::string& config_path, Stage3Config* config) {
 
     if (yaml["graph_refine"]) {
       const auto& graph = yaml["graph_refine"];
+      if (graph["trust_all_quality_fields"]) {
+        config->graph.trust_all_quality_fields =
+            graph["trust_all_quality_fields"].as<bool>();
+      }
       if (graph["lio_translation_sigma_m"]) {
         config->graph.lio_translation_sigma_m =
             graph["lio_translation_sigma_m"].as<double>();
@@ -219,6 +223,12 @@ bool LoadStage3Config(const std::string& config_path, Stage3Config* config) {
       if (graph["verbose"]) {
         config->graph.verbose = graph["verbose"].as<bool>();
       }
+    }
+
+    if (yaml["gps_fusion"] &&
+        yaml["gps_fusion"]["trust_all_quality_fields"]) {
+      config->graph.trust_all_quality_fields =
+          yaml["gps_fusion"]["trust_all_quality_fields"].as<bool>();
     }
 
     if (yaml["output"]) {

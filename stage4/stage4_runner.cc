@@ -453,9 +453,13 @@ lightning::CloudPtr BuildFinalMap(
     stats->keyframe_count = records.size();
   }
 
+  const bool enable_keyframe_voxel =
+      config.final_map.voxel_size_m > 1e-6;
   pcl::VoxelGrid<lightning::PointType> voxel;
-  const float leaf = static_cast<float>(config.final_map.voxel_size_m);
-  voxel.setLeafSize(leaf, leaf, leaf);
+  if (enable_keyframe_voxel) {
+    const float leaf = static_cast<float>(config.final_map.voxel_size_m);
+    voxel.setLeafSize(leaf, leaf, leaf);
+  }
 
   const size_t step =
       static_cast<size_t>(std::max(config.final_map.keyframe_step, 1));
@@ -469,9 +473,14 @@ lightning::CloudPtr BuildFinalMap(
       stats->input_points += record.cloud->size();
     }
 
-    lightning::CloudPtr cloud_filtered(new lightning::PointCloudType);
-    voxel.setInputCloud(record.cloud);
-    voxel.filter(*cloud_filtered);
+    lightning::CloudPtr cloud_filtered;
+    if (enable_keyframe_voxel) {
+      cloud_filtered.reset(new lightning::PointCloudType);
+      voxel.setInputCloud(record.cloud);
+      voxel.filter(*cloud_filtered);
+    } else {
+      cloud_filtered = record.cloud;
+    }
     if (stats != nullptr) {
       stats->after_keyframe_voxel_points += cloud_filtered->size();
     }

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
+#include <limits>
 #include <string>
 #include <system_error>
 #include <vector>
@@ -22,6 +23,9 @@ using apollo::cyber::record::RecordReader;
 
 bool Stage1Runner::Run(const Stage1Config& config) {
   config_ = config;
+  dataset_begin_time_ns_ = 0;
+  dataset_cutoff_time_ns_ = 0;
+  duration_limit_reached_ = false;
   if (!PrepareCleanOutputDirectory(config_.output.directory, "stage1")) {
     return false;
   }
@@ -61,9 +65,35 @@ bool Stage1Runner::Run(const Stage1Config& config) {
   gps_odom_recorder_ = std::make_unique<lightning::GpsOdomRecorder>();
   gps_odom_recorder_->Init(gps_odom_path.string(), config_.map_name);
 
+  if (config_.max_duration_sec > 0.0) {
+    RecordReader first_reader(config_.records.front());
+    if (!first_reader.IsValid()) {
+      AERROR << "Invalid first record while resolving dataset cutoff: "
+             << config_.records.front();
+      return false;
+    }
+    dataset_begin_time_ns_ = first_reader.GetHeader().begin_time();
+    const long double duration_ns =
+        static_cast<long double>(config_.max_duration_sec) * 1.0e9L;
+    const long double max_add = static_cast<long double>(
+        std::numeric_limits<uint64_t>::max() - dataset_begin_time_ns_);
+    dataset_cutoff_time_ns_ =
+        duration_ns >= max_add
+            ? std::numeric_limits<uint64_t>::max()
+            : dataset_begin_time_ns_ + static_cast<uint64_t>(duration_ns);
+    AINFO << "Dataset duration limit enabled: begin_ns="
+          << dataset_begin_time_ns_ << ", max_duration_sec="
+          << config_.max_duration_sec << ", cutoff_ns="
+          << dataset_cutoff_time_ns_;
+  }
+
   for (const auto& record : config_.records) {
     if (!ProcessRecord(record)) {
       return false;
+    }
+    if (duration_limit_reached_) {
+      AINFO << "Stopped record ingestion at configured dataset duration limit";
+      break;
     }
   }
   if (dual_lidar_fusion_) {
@@ -150,10 +180,23 @@ bool Stage1Runner::ProcessRecord(const std::string& record_path) {
     AERROR << "Invalid record file: " << record_path;
     return false;
   }
+  if (dataset_cutoff_time_ns_ > 0 &&
+      reader.GetHeader().begin_time() > dataset_cutoff_time_ns_) {
+    duration_limit_reached_ = true;
+    AINFO << "Skipping record beyond dataset cutoff: " << record_path;
+    return true;
+  }
 
   RecordMessage message;
   uint64_t processed = 0;
+  uint64_t skipped_after_cutoff = 0;
   while (reader.ReadMessage(&message)) {
+    if (dataset_cutoff_time_ns_ > 0 &&
+        message.time > dataset_cutoff_time_ns_) {
+      ++skipped_after_cutoff;
+      duration_limit_reached_ = true;
+      continue;
+    }
     if (dual_lidar_fusion_ &&
         message.channel_name == config_.dual_lidar.primary_channel) {
       auto cloud = std::make_shared<apollo::drivers::PointCloud>();
@@ -214,7 +257,8 @@ bool Stage1Runner::ProcessRecord(const std::string& record_path) {
   }
 
   AINFO << "Finished record: " << record_path
-        << ", messages=" << processed;
+        << ", messages=" << processed
+        << ", skipped_after_cutoff=" << skipped_after_cutoff;
   return true;
 }
 
@@ -280,11 +324,13 @@ void Stage1Runner::ProcessHeading(
   if (!config_.gps_gate.enable_gps_heading_init) {
     return;
   }
-  if (heading_msg.has_solution_status() &&
+  if (!config_.gps_gate.trust_all_quality_fields &&
+      heading_msg.has_solution_status() &&
       heading_msg.solution_status() != apollo::drivers::gnss::SOL_COMPUTED) {
     return;
   }
-  if (heading_msg.has_position_type() &&
+  if (!config_.gps_gate.trust_all_quality_fields &&
+      heading_msg.has_position_type() &&
       !IsAcceptedRtkSolutionType(heading_msg.position_type())) {
     return;
   }
@@ -307,7 +353,11 @@ void Stage1Runner::ProcessHeading(
       heading_msg.has_satellite_tracked_number()
           ? static_cast<int>(heading_msg.satellite_tracked_number())
           : 0;
+  heading.body_x_yaw_sign = config_.gps_gate.body_x_yaw_sign;
+  heading.body_x_yaw_offset_deg =
+      config_.gps_gate.body_x_yaw_offset_deg;
   heading.is_valid =
+      config_.gps_gate.trust_all_quality_fields ||
       heading.heading_std_dev < config_.gps_gate.heading_std_threshold;
   if (!heading.is_valid) {
     return;
@@ -370,6 +420,9 @@ bool Stage1Runner::IsGpsInsValid() const {
 
 bool Stage1Runner::IsGpsSolutionValid(
     const apollo::drivers::gnss::GnssBestPose& msg) const {
+  if (config_.gps_gate.trust_all_quality_fields) {
+    return true;
+  }
   if (!msg.has_sol_status() || !msg.has_sol_type()) {
     return false;
   }

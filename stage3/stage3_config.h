@@ -7,6 +7,9 @@ namespace air_mapping {
 namespace stage3 {
 
 struct GraphRefineConfig {
+  // Treat every finite Stage2 GPS anchor as usable even when the source driver
+  // reports unreliable status/type/std quality fields.
+  bool trust_all_quality_fields = false;
   double lio_translation_sigma_m = 0.08;
   double lio_rotation_sigma_deg = 1.0;
   double gps_weight_scale = 1.0;

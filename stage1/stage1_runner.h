@@ -55,6 +55,9 @@ class Stage1Runner {
   std::atomic<bool> has_ins_stat_{false};
   std::unique_ptr<lightning::GpsOdomRecorder> gps_odom_recorder_;
   std::unique_ptr<DualLidarFusion> dual_lidar_fusion_;
+  uint64_t dataset_begin_time_ns_ = 0;
+  uint64_t dataset_cutoff_time_ns_ = 0;
+  bool duration_limit_reached_ = false;
 };
 
 }  // namespace stage1

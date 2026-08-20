@@ -108,7 +108,10 @@ void NormalizeFinalMapConfig(FinalMapConfig* config) {
   if (config == nullptr) {
     return;
   }
-  config->voxel_size_m = std::max(config->voxel_size_m, 0.01);
+  // A zero voxel size explicitly disables both the per-keyframe and global
+  // voxel filters.  This is useful when the exported PCD must retain every
+  // point from every selected keyframe.
+  config->voxel_size_m = std::max(config->voxel_size_m, 0.0);
   config->keyframe_step = std::max(config->keyframe_step, 1);
   if (config->min_z_m > config->max_z_m) {
     std::swap(config->min_z_m, config->max_z_m);

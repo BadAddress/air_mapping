@@ -66,6 +66,9 @@ double GnssLioYawDiffDeg(const Stage1GpsRawKeyframeObservation& observation) {
 
 bool IsAcceptedFixedSolution(const Stage1GpsRawKeyframeObservation& observation,
                              const LeverArmCalibrationConfig& config) {
+  if (config.trust_all_quality_fields) {
+    return true;
+  }
   if (!config.require_rtk_fixed) {
     return true;
   }
@@ -99,7 +102,8 @@ bool IsHighPrecisionRawGps(const Stage1GpsRawKeyframeObservation& observation,
     }
     return false;
   }
-  if (config.max_heading_std_deg > 0.0 &&
+  if (!config.trust_all_quality_fields &&
+      config.max_heading_std_deg > 0.0 &&
       observation.heading_std_deg > 0.0 &&
       observation.heading_std_deg > config.max_heading_std_deg) {
     if (reject_reason) {
@@ -113,8 +117,9 @@ bool IsHighPrecisionRawGps(const Stage1GpsRawKeyframeObservation& observation,
     }
     return false;
   }
-  if (std::abs(observation.std_dev.x()) > config.max_gps_std_xy_m ||
-      std::abs(observation.std_dev.y()) > config.max_gps_std_xy_m) {
+  if (!config.trust_all_quality_fields &&
+      (std::abs(observation.std_dev.x()) > config.max_gps_std_xy_m ||
+       std::abs(observation.std_dev.y()) > config.max_gps_std_xy_m)) {
     if (reject_reason) {
       *reject_reason = "std_xy_too_large";
     }
@@ -935,6 +940,8 @@ bool RunLeverArmCalibration(const Stage1Dataset& dataset,
   result->enabled = lever_config.enable;
   result->orientation_model = "gnss_heading";
   result->estimate_heading_bias = lever_config.estimate_heading_bias;
+  result->initial_lever_arm = FindConfiguredLeverArm(dataset);
+  result->optimized_lever_arm = result->initial_lever_arm;
   *calibrated_alignment = initial_alignment;
 
   if (!lever_config.enable) {
@@ -947,9 +954,6 @@ bool RunLeverArmCalibration(const Stage1Dataset& dataset,
   }
 
   result->candidate_count = dataset.gps_raw_keyframe_observations.size();
-  result->initial_lever_arm = FindConfiguredLeverArm(dataset);
-  result->optimized_lever_arm = result->initial_lever_arm;
-
   std::vector<const Stage1GpsRawKeyframeObservation*> selected_samples;
   selected_samples.reserve(dataset.gps_raw_keyframe_observations.size());
   for (const auto& observation : dataset.gps_raw_keyframe_observations) {
@@ -1169,8 +1173,13 @@ bool Stage2Runner::Run(const Stage2Config& config) {
   std::vector<AlignmentAnchor> anchors;
   std::vector<GpsSegmentSummary> segments;
   bool initial_anchors_from_raw_gps = false;
-  if (config.lever_arm_calibration.enable &&
-      !dataset.gps_raw_keyframe_observations.empty()) {
+  // Prefer the post-ingestion raw-GPS/keyframe associations whenever they are
+  // available.  They can interpolate with observations on both sides of a
+  // keyframe, unlike the online Stage1 attachment path where a low-rate GNSS
+  // message from the future has not arrived yet.  Disabling lever-arm
+  // calibration means "keep the configured lever arm fixed"; it must not
+  // disable these more complete GPS anchors.
+  if (!dataset.gps_raw_keyframe_observations.empty()) {
     Stage2AlignmentResult identity_alignment;
     if (!BuildLeverArmCorrectedAlignmentAnchors(
             dataset, identity_alignment, FindConfiguredLeverArm(dataset), 0.0,

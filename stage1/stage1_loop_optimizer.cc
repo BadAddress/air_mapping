@@ -97,14 +97,39 @@ CloudPtr DownsampleCloud(const CloudPtr& input, float voxel_size) {
   if (!input || input->empty()) {
     return output;
   }
+
+  // Full-density keyframe clouds intentionally preserve the driver payload,
+  // which can include non-finite XYZ samples.  VoxelGrid computes integer
+  // voxel indices before filtering them and can overflow on Inf/NaN, so keep
+  // the saved cloud untouched but sanitize the temporary registration input.
+  CloudPtr finite(new PointCloudType);
+  finite->points.reserve(input->size());
+  for (const auto& point : input->points) {
+    // Do not trust cloud.is_dense here: this driver's payload contains
+    // non-finite coordinates even when an intermediate PCL operation marks
+    // the cloud dense.
+    if (std::isfinite(point.x) && std::isfinite(point.y) &&
+        std::isfinite(point.z)) {
+      finite->points.push_back(point);
+    }
+  }
+  finite->header = input->header;
+  finite->sensor_origin_ = input->sensor_origin_;
+  finite->sensor_orientation_ = input->sensor_orientation_;
+  finite->is_dense = true;
+  finite->height = 1;
+  finite->width = finite->size();
+  if (finite->empty()) {
+    return output;
+  }
   if (!(voxel_size > 1e-4f)) {
-    *output = *input;
+    *output = *finite;
     return output;
   }
 
   pcl::VoxelGrid<PointType> voxel;
   voxel.setLeafSize(voxel_size, voxel_size, voxel_size);
-  voxel.setInputCloud(input);
+  voxel.setInputCloud(finite);
   voxel.filter(*output);
   output->is_dense = false;
   output->height = 1;

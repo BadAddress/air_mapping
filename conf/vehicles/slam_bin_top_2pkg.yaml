@@ -1,0 +1,216 @@
+# Two-record acceptance profile for the slam_bin top-LiDAR dataset.
+# Sensor frames are right-forward-up (IMU) and forward-left-up (LiDAR).
+
+profile:
+  vehicle_name: "slam_bin_top_2pkg"
+  description: "Top-LiDAR/GNSS integration acceptance run using record 00000-00001."
+  enable_dual_lidar: false
+
+dataset:
+  records:
+    - "/apollo_workspace/test_data/slam_bin/20260820161109.record.00000.20260820161109"
+    - "/apollo_workspace/test_data/slam_bin/20260820161109.record.00001.20260820161207"
+
+stage1:
+  save_keyframe_clouds: true
+  # Do not assemble a downsampled diagnostic map; Stage4 exports the full map.
+  save_preview_map: false
+
+zleveling:
+  enable: false
+  height_noise_m: 0.05
+
+channels:
+  imu: "/apollo/sensor/gnss/corrected_imu"
+  imu_type: "corrected"
+  lidar: "/apollo/sensor/rslidar/top/PointCloud2"
+  heading: "/apollo/sensor/gnss/heading"
+  gnss_best_pose: "/apollo/sensor/gnss/best_pose"
+  ins_stat: "/apollo/sensor/gnss/ins_stat"
+  gps_odom: "/apollo/sensor/gnss/odometry"
+
+dual_lidar_fusion:
+  enable: false
+
+fasterlio:
+  lidar_type: 2
+  scan_line: 32
+  blind: 2.0
+  time_scale: 0.001
+  kf_dist_th: 2.0
+  kf_angle_th: 12
+  # In this implementation 1 processes every LiDAR frame.
+  skip_lidar_num: 1
+  # Mapping stride 1 preserves every input point in each saved keyframe cloud.
+  point_filter_num: 1
+  mapping_point_filter_num: 1
+  max_iteration: 6
+  # Internal IEKF correspondence working set only; saved clouds remain full density.
+  filter_size_scan: 0.16
+  filter_size_map: 0.16
+  ivox_grid_resolution: 0.16
+  ivox_nearby_type: 18
+  esti_plane_threshold: 0.06
+  use_aa: false
+  acc_cov: 0.1
+  gyr_cov: 0.1
+  b_acc_cov: 0.0001
+  b_gyr_cov: 0.0001
+  extrinsic_est_en: false
+  # p_imu = R_imu_lidar * p_lidar + t_imu_lidar
+  # LiDAR origin is 0.44 m along IMU +Y (forward) and 0.82 m along +Z.
+  extrinsic_T: [0.0, 0.44, 0.82]
+  extrinsic_R: [0.0, -1.0, 0.0,
+                1.0,  0.0, 0.0,
+                0.0,  0.0, 1.0]
+  keep_first_imu_estimation: false
+
+system:
+  with_ui: false
+  with_2dui: false
+  with_g2p5: false
+  step_on_kf: false
+  pub_tf: false
+
+map_save_filter:
+  enable: false
+  voxel_size_m: 0.0
+  chunk_voxel_size_m: 0.0
+  remove_invalid_points: true
+  enable_height_crop: false
+  min_z_m: -1000.0
+  max_z_m: 1000.0
+  enable_statistical_outlier_removal: false
+  sor_mean_k: 20
+  sor_stddev_mul_thresh: 1.0
+
+gps_fusion:
+  # Stage1 stays pure LIO; Stage2/Stage3 perform the GPS fusion.
+  enable: false
+  trust_all_quality_fields: true
+  min_kf_distance_for_gps_attach: 0.0
+  heading_channel: "/apollo/sensor/gnss/heading"
+  gps_channel: "/apollo/sensor/gnss/best_pose"
+  heading_std_threshold: 999.0
+  enable_ins_gate: false
+  ins_gate_status: 2
+  ins_gate_pos_type: 56
+
+loop_closure:
+  enable: true
+  search_radius: 25.0
+  min_keyframe_gap: 50
+  loop_kf_gap: 10
+  min_id_interval: 20
+  closest_id_th: 50
+  max_candidates_per_query: 8
+  history_submap_half_range: 40
+  history_submap_step: 4
+  coarse_z_search_m: 12.0
+  coarse_z_step_m: 4.0
+  ndt_resolutions: [10.0, 5.0, 2.0, 1.0]
+  ndt_max_iterations: 40
+  ndt_score_threshold: 0.3
+  ndt_voxel_ratio: 0.1
+  use_icp_refine: false
+  icp_max_iterations: 8
+  icp_max_corr_dist: 1.0
+  icp_fitness_threshold: 0.3
+  icp_max_translation_delta: 0.20
+  icp_max_rotation_delta_deg: 3.0
+  lio_translation_sigma_m: 0.08
+  lio_rotation_sigma_deg: 1.0
+  loop_translation_sigma_m: 0.25
+  loop_rotation_sigma_deg: 3.0
+  loop_info_scale: 1.0
+  lio_huber_delta: 1.0
+  loop_cauchy_delta: 1.0
+  enable_loop_outlier_rejection: true
+  loop_outlier_chi2_threshold: 30.0
+  max_iterations: 50
+  verbose: false
+
+gps_heading_init:
+  enable: true
+  # Vector from IMU origin to the main GNSS antenna, expressed in IMU RFU.
+  gps_to_imu_translation: [-0.05, 0.0, 0.64]
+  # Full-record motion analysis: forward course - raw heading median = 92.9952 deg.
+  # Body +X is right, hence body-X yaw = forward course - 90 deg = raw + 2.9952 deg.
+  body_x_yaw_sign: 1.0
+  body_x_yaw_offset_deg: 2.9952
+
+time_sync:
+  gnss_lidar_time_offset: 0.0
+
+alignment:
+  gps_segment_break_distance_m: 30.0
+  smooth_gps_height: false
+  gps_height_smoothing_lambda: 0.0
+  min_gps_std_xy: 0.01
+  min_gps_std_z: 0.05
+  min_alignment_anchors: 3
+  constrain_to_yaw_only: true
+  robust_huber_delta_m: 2.0
+  robust_max_iterations: 5
+
+lever_arm_calibration:
+  # Keep the supplied measured lever arm fixed during this acceptance run.
+  enable: false
+  trust_all_quality_fields: true
+  max_gps_std_xy_m: 999.0
+  # BestPose is about 1.1 Hz in this dataset; 1.0 s keeps all bracketed samples.
+  max_interp_gap_s: 1.0
+  require_stage1_gps_anchor: false
+  require_rtk_fixed: false
+  required_sol_status: 0
+  required_sol_type: 50
+  max_heading_std_deg: 999.0
+  min_samples: 20
+  max_iterations: 5
+  prior_sigma_xy_m: 0.30
+  prior_sigma_z_m: 0.05
+  estimate_heading_bias: false
+  prior_sigma_heading_bias_deg: 1.0
+  max_heading_bias_deg: 3.0
+  huber_delta_xy_m: 0.15
+  max_correction_norm_m: 0.50
+  estimate_z: false
+
+graph_refine:
+  trust_all_quality_fields: true
+  lio_translation_sigma_m: 0.08
+  lio_rotation_sigma_deg: 1.0
+  gps_weight_scale: 1.0
+  min_gps_std_xy: 0.05
+  min_gps_std_z: 0.05
+  max_gps_info_xy: 400.0
+  max_gps_info_z: 40.0
+  use_gps_z: false
+  max_fused_gps_std_xy: 999.0
+  gps_support_max_anchor_gap_m: 20.0
+  gps_boundary_ramp_distance_m: 15.0
+  first_pose_prior_translation_sigma_m: 5.0
+  first_pose_prior_rotation_sigma_deg: 10.0
+  lio_huber_delta: 1.0
+  gps_huber_delta: 2.0
+  first_pose_prior_huber_delta: 1.0
+  enable_outage_blocks: false
+  max_iterations: 80
+  verbose: false
+
+final_map:
+  # Zero disables Stage4 per-keyframe and global voxel filters.
+  voxel_size_m: 0.0
+  keyframe_step: 1
+  remove_invalid_points: true
+  enable_height_crop: false
+  min_z_m: -1000.0
+  max_z_m: 1000.0
+  enable_statistical_outlier_removal: false
+  sor_mean_k: 20
+  sor_stddev_mul_thresh: 1.0
+
+output:
+  save_preview_map: false
+  preview_voxel_size: 0.2
+  preview_keyframe_step: 1

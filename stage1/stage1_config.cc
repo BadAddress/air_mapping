@@ -1,6 +1,7 @@
 #include "modules/air_mapping/stage1/stage1_config.h"
 
 #include <algorithm>
+#include <cmath>
 #include <exception>
 #include <filesystem>
 #include <fstream>
@@ -241,6 +242,10 @@ bool LoadStage1Config(const std::string& config_path, Stage1Config* config) {
       }
       config->dataset_sources = config->records;
     }
+    if (yaml["dataset"] && yaml["dataset"]["max_duration_sec"]) {
+      config->max_duration_sec =
+          yaml["dataset"]["max_duration_sec"].as<double>();
+    }
 
     if (yaml["channels"]) {
       const auto& channels = yaml["channels"];
@@ -270,9 +275,20 @@ bool LoadStage1Config(const std::string& config_path, Stage1Config* config) {
 
     LoadDualLidarConfig(yaml, config);
 
-    if (yaml["gps_heading_init"] && yaml["gps_heading_init"]["enable"]) {
-      config->gps_gate.enable_gps_heading_init =
-          yaml["gps_heading_init"]["enable"].as<bool>();
+    if (yaml["gps_heading_init"]) {
+      const auto& heading = yaml["gps_heading_init"];
+      if (heading["enable"]) {
+        config->gps_gate.enable_gps_heading_init =
+            heading["enable"].as<bool>();
+      }
+      if (heading["body_x_yaw_sign"]) {
+        config->gps_gate.body_x_yaw_sign =
+            heading["body_x_yaw_sign"].as<double>();
+      }
+      if (heading["body_x_yaw_offset_deg"]) {
+        config->gps_gate.body_x_yaw_offset_deg =
+            heading["body_x_yaw_offset_deg"].as<double>();
+      }
     }
     if (yaml["gps_fusion"]) {
       const auto& gps = yaml["gps_fusion"];
@@ -286,6 +302,10 @@ bool LoadStage1Config(const std::string& config_path, Stage1Config* config) {
       if (gps["heading_std_threshold"]) {
         config->gps_gate.heading_std_threshold =
             gps["heading_std_threshold"].as<double>();
+      }
+      if (gps["trust_all_quality_fields"]) {
+        config->gps_gate.trust_all_quality_fields =
+            gps["trust_all_quality_fields"].as<bool>();
       }
       if (gps["enable_ins_gate"]) {
         config->gps_gate.enable_ins_gate = gps["enable_ins_gate"].as<bool>();
@@ -446,6 +466,16 @@ bool LoadStage1Config(const std::string& config_path, Stage1Config* config) {
   }
   if (config->output.directory.empty()) {
     AERROR << "Stage1 output directory is empty in " << config_path;
+    return false;
+  }
+  config->max_duration_sec = std::max(config->max_duration_sec, 0.0);
+  if (!std::isfinite(config->gps_gate.body_x_yaw_sign) ||
+      std::abs(config->gps_gate.body_x_yaw_sign) < 1e-9) {
+    AERROR << "gps_heading_init.body_x_yaw_sign must be finite and non-zero";
+    return false;
+  }
+  if (!std::isfinite(config->gps_gate.body_x_yaw_offset_deg)) {
+    AERROR << "gps_heading_init.body_x_yaw_offset_deg must be finite";
     return false;
   }
   auto& z_leveling = config->zleveling;

@@ -21,6 +21,8 @@ struct HeadingObservation {
     double pitch_std_dev = 0.0;       // 俯仰角标准差 (度)
     int satellite_tracked = 0;        // 跟踪的卫星数
     bool is_valid = false;            // 是否有效
+    double body_x_yaw_sign = 1.0;
+    double body_x_yaw_offset_deg = -87.5171;
     
     HeadingObservation() = default;
     
@@ -29,10 +31,11 @@ struct HeadingObservation {
     /// 新版传感器 heading = 车头方向（Apollo 约定: East=0°, North=90°, 逆时针正）
     /// CorrectedImu body frame: X=右, Y=前, Z=上 (RFU)
     /// ApplyGPSHeadingInit 中 Rz(yaw) 把 body X 轴对齐到 ENU 的 yaw 方向
-    /// body X 轴（右侧）在 ENU 中的方向 = heading - offset
-    /// offset 包含天线安装角等标定值（旧版 X86 标定值 88.956304°）
+    /// body X 轴（右侧）在 ENU 中的方向由车型配置给出：
+    /// yaw = body_x_yaw_sign * heading + body_x_yaw_offset_deg
     double GetYawRad() const {
-        double yaw_rad = (heading - 87.5171) * M_PI / 180.0;
+        double yaw_rad =
+            (body_x_yaw_sign * heading + body_x_yaw_offset_deg) * M_PI / 180.0;
                 
         while (yaw_rad > M_PI) yaw_rad -= 2.0 * M_PI;
         while (yaw_rad < -M_PI) yaw_rad += 2.0 * M_PI;
@@ -82,4 +85,3 @@ struct GpsFullObservation {
 }  // namespace lightning
 
 #endif  // LIGHTNING_GPS_DATA_H
-
